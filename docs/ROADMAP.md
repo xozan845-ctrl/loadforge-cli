@@ -31,14 +31,20 @@ cruzados y documentación actualizada antes de pasar a la siguiente.
 - [x] Integración Termux: `termux-wake-lock`, batería, temperatura y red.
 - [x] Pausa/reanudación y controles en la TUI.
 
-## Fase 4 — Protocolos y escala (`v0.6.0`)
+## Fase 4A — Escenarios (`v0.6.0`)
 
-- [ ] gRPC, WebSocket y multipart.
-- [ ] Escenarios multi-paso en YAML/HCL con pesos y extracción de variables.
+- [x] Escenarios multi-paso en JSON con extracción de variables.
+- [x] Métricas por paso en el reporte.
+- [x] Multipart con `--form` (campos y archivos).
+
+## Fase 4B — Protocolos y escala (`v0.7.0`)
+
+- [ ] gRPC y WebSocket.
+- [ ] Pesos, pausas por paso y escenarios en YAML.
 - [ ] Modo distribuido con agentes y coordinador.
-- [ ] Historial local en SQLite y tendencias en el reporte web.
+- [ ] Historial local de ejecuciones y tendencias.
 
-## Fase 5 — Calidad y distribución (`v0.7.0`)
+## Fase 5 — Calidad y distribución (`v0.8.0`)
 
 - [ ] CI con `-race`, cobertura, `golangci-lint`, `govulncheck` y e2e.
 - [ ] Firma de binarios con cosign, SBOM y procedencia SLSA.

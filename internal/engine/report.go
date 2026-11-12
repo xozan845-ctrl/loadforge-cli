@@ -79,6 +79,15 @@ type aggregator struct {
 
 	timingSamples uint64
 	reusedConns   uint64
+
+	steps map[string]*stepAgg
+}
+
+type stepAgg struct {
+	requests uint64
+	errors   uint64
+	totalUs  int64
+	hist     *hdr.Histogram
 }
 
 func newAggregator(cfg Config, pacer vegeta.Pacer, start time.Time) *aggregator {
@@ -101,6 +110,7 @@ func newAggregator(cfg Config, pacer vegeta.Pacer, start time.Time) *aggregator 
 		tTLS:      hdr.New(1, maxUs, 3),
 		tTTFB:     hdr.New(1, maxUs, 3),
 		tDownload: hdr.New(1, maxUs, 3),
+		steps:     map[string]*stepAgg{},
 	}
 }
 
@@ -135,6 +145,20 @@ func (a *aggregator) add(res *vegeta.Result, elapsed time.Duration) {
 	if raw := res.Headers.Get(timingHeader); raw != "" {
 		res.Headers.Del(timingHeader)
 		a.recordTiming(raw, res.Latency)
+	}
+
+	if res.Attack != "" {
+		sa := a.steps[res.Attack]
+		if sa == nil {
+			sa = &stepAgg{hist: hdr.New(1, a.maxUs, 3)}
+			a.steps[res.Attack] = sa
+		}
+		sa.requests++
+		if !ok {
+			sa.errors++
+		}
+		sa.totalUs += us
+		_ = sa.hist.RecordValue(us)
 	}
 
 	idx := int(elapsed / time.Second)
@@ -335,6 +359,37 @@ func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, en
 	}
 	sort.Strings(headers)
 
+	var steps []model.StepReport
+	addStep := func(name string, sa *stepAgg) {
+		if sa == nil {
+			return
+		}
+		steps = append(steps, model.StepReport{
+			Name:      name,
+			Requests:  sa.requests,
+			Errors:    sa.errors,
+			ErrorRate: ratio(sa.errors, sa.requests),
+			MeanMs:    float64(sa.totalUs) / float64(sa.requests) / 1000,
+			P50Ms:     usToMs(sa.hist.ValueAtQuantile(50)),
+			P95Ms:     usToMs(sa.hist.ValueAtQuantile(95)),
+			P99Ms:     usToMs(sa.hist.ValueAtQuantile(99)),
+		})
+	}
+	if a.cfg.Scenario != nil {
+		for _, step := range a.cfg.Scenario.Steps {
+			addStep(step.Name, a.steps[step.Name])
+		}
+	} else {
+		names := make([]string, 0, len(a.steps))
+		for name := range a.steps {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			addStep(name, a.steps[name])
+		}
+	}
+
 	stages := make([]model.StageInfo, 0, len(a.cfg.Stages))
 	for _, s := range a.cfg.Stages {
 		stages = append(stages, model.StageInfo{
@@ -379,6 +434,7 @@ func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, en
 		Timings:      timings,
 		Thresholds:   thresholds,
 		Verdict:      verdict,
+		Steps:        steps,
 		Environment: model.Environment{
 			OS:        runtimeOS(),
 			Arch:      runtimeArch(),

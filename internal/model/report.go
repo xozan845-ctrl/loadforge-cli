@@ -21,7 +21,20 @@ type Report struct {
 	Thresholds    Thresholds      `json:"thresholds"`
 	Verdict       Verdict         `json:"verdict"`
 	Environment   Environment     `json:"environment"`
+	Steps         []StepReport    `json:"steps,omitempty"`
 	Comparison    *Comparison     `json:"comparison,omitempty"`
+}
+
+// StepReport aggregates one step of a multi-step scenario.
+type StepReport struct {
+	Name      string  `json:"name"`
+	Requests  uint64  `json:"requests"`
+	Errors    uint64  `json:"errors"`
+	ErrorRate float64 `json:"error_rate"`
+	MeanMs    float64 `json:"mean_ms"`
+	P50Ms     float64 `json:"p50_ms"`
+	P95Ms     float64 `json:"p95_ms"`
+	P99Ms     float64 `json:"p99_ms"`
 }
 
 // Comparison describes how a run changed relative to a saved baseline.

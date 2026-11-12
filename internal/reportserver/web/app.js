@@ -356,6 +356,27 @@ function renderRecommendations(r) {
   for (const text of items) wrap.append(node("li", "", text));
 }
 
+function renderSteps(r) {
+  const panel = document.getElementById("stepsPanel");
+  const steps = r.steps || [];
+  if (!steps.length) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  const grid = document.getElementById("stepsGrid");
+  grid.replaceChildren();
+  for (const s of steps) {
+    const cls = s.error_rate >= 0.05 ? " bad" : s.error_rate === 0 ? " good" : "";
+    const box = node("div", "meta-item" + cls);
+    box.append(
+      node("div", "k", s.name),
+      node("div", "v", `${fmtInt.format(s.requests)} req · ${fmtPct(s.error_rate)} err · P95 ${ms(s.p95_ms)}`)
+    );
+    grid.append(box);
+  }
+}
+
 function renderTimings(r) {
   const grid = document.getElementById("timingsGrid");
   grid.replaceChildren();
@@ -610,6 +631,7 @@ function render(r) {
   renderErrors(r);
   renderRecommendations(r);
   renderEnvironment(r);
+  renderSteps(r);
   renderTimings(r);
   renderComparison(r);
   renderMeta(r);

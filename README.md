@@ -69,6 +69,9 @@ Al terminar:
 - **Modelo cerrado**: `--mode vu --vus N --think-time 1s`, con pausa/reanudación
   desde la TUI (`p`).
 - **Termux**: wake-lock automático, batería, temperatura y tipo de red.
+- **Escenarios multi-paso**: flujos en JSON con extracción de variables entre
+  pasos y métricas por paso.
+- **Multipart**: subida de formularios y archivos con `--form`.
 - **Redacción de secretos**: la API key nunca entra al reporte; los valores de
   query sensibles se reemplazan por `***`.
 
@@ -280,6 +283,44 @@ loadforge run --url https://api.ejemplo.com/v1/items \
 El token se obtiene antes de la prueba y se renueva automáticamente cuando
 está a punto de caducar.
 
+**Escenario multi-paso con extracción de token:**
+
+```json
+{
+  "steps": [
+    {
+      "name": "login",
+      "method": "POST",
+      "path": "/auth/login",
+      "body": "{\"user\":\"{{.user}}\"}",
+      "extract": { "token": "access_token" }
+    },
+    {
+      "name": "listar",
+      "method": "GET",
+      "path": "/v1/items",
+      "headers": { "Authorization": "Bearer {{.token}}" }
+    }
+  ]
+}
+```
+
+```bash
+loadforge run --url https://api.ejemplo.com \
+  --scenario flujo.json --mode vu --vus 10 --think-time 1s --duration 5m
+```
+
+Cada VU ejecuta los pasos en orden. Las variables extraídas de una respuesta
+quedan disponibles en los pasos siguientes; también se pueden combinar con
+`--data-file`. El reporte muestra métricas por paso.
+
+**Multipart:**
+
+```bash
+loadforge run --url https://api.ejemplo.com/upload \
+  --method POST --form name=demo --form avatar=@foto.png
+```
+
 **POST con JSON:**
 
 ```bash
@@ -417,6 +458,8 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `-H, --header` | — | Header extra `Clave: Valor`, repetible. |
 | `--body` / `--body-file` | — | Cuerpo de la petición (admite placeholders). |
 | `--data-file` | — | CSV o JSON con filas para templating. |
+| `--scenario` | — | Flujo multi-paso en JSON (requiere `--mode vu`). |
+| `--form` | — | Campo multipart `name=value` o `name=@archivo`. |
 | `--oauth2-token-url` | — | Endpoint OAuth2 client_credentials. |
 | `--oauth2-client-id` / `--oauth2-client-secret` | — | Credenciales OAuth2. |
 | `--oauth2-scope` | — | Scope solicitado. |

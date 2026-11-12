@@ -90,6 +90,19 @@ func printSummary(r *model.Report, savedPath string) {
 	if len(r.Meta.Stages) > 0 {
 		rows = append(rows, kv("Perfil", stagesText(r.Meta.Stages, narrow)))
 	}
+	if len(r.Steps) > 0 {
+		worst := 0.0
+		for _, s := range r.Steps {
+			if s.P95Ms > worst {
+				worst = s.P95Ms
+			}
+		}
+		if narrow {
+			rows = append(rows, kv("Pasos", fmt.Sprintf("%d · peor P95 %s", len(r.Steps), formatMs(worst))))
+		} else {
+			rows = append(rows, kv("Pasos", fmt.Sprintf("%d pasos · peor P95 %s", len(r.Steps), formatMs(worst))))
+		}
+	}
 	if r.Meta.Mode == "vu" {
 		if narrow {
 			rows = append(rows, kv("VUs", fmt.Sprintf("%d · %s", r.Meta.VUs, formatDuration(time.Duration(r.Meta.ThinkTimeMs)*time.Millisecond))))

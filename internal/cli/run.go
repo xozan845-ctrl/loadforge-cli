@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/signal"
@@ -51,6 +53,8 @@ type runOptions struct {
 	duration  time.Duration
 
 	dataFile   string
+	scenario   string
+	form       []string
 	workers    int
 	maxWorkers int
 	vus        int
@@ -119,6 +123,8 @@ ventana de 5 segundos.`,
 	f.StringVar(&opts.body, "body", "", "Cuerpo de la petición (admite {{.Iteration}}, {{.RandomID}}, {{.columna}})")
 	f.StringVar(&opts.bodyFile, "body-file", "", "Archivo con el cuerpo de la petición")
 	f.StringVar(&opts.dataFile, "data-file", "", "CSV o JSON con filas para templating")
+	f.StringVar(&opts.scenario, "scenario", "", "Escenario multi-paso en JSON (requiere --mode vu)")
+	f.StringArrayVar(&opts.form, "form", nil, "Campo multipart name=value o name=@archivo (repetible)")
 	f.StringVar(&opts.contentType, "content-type", "", "Content-Type (por defecto application/json si hay body)")
 
 	f.StringVar(&opts.mode, "mode", engine.ModeRamp, "Modo: ramp, constant, step, spike, soak o vu")
@@ -248,6 +254,41 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		headers.Set("Content-Type", "application/json")
 	}
 
+	if len(opts.form) > 0 {
+		if len(body) > 0 || opts.bodyFile != "" || opts.dataFile != "" {
+			return engine.Config{}, fmt.Errorf("--form no se combina con --body, --body-file ni --data-file")
+		}
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		for i, raw := range opts.form {
+			name, value, ok := strings.Cut(raw, "=")
+			if !ok || strings.TrimSpace(name) == "" {
+				return engine.Config{}, fmt.Errorf("--form %d inválido %q: usa name=value", i+1, raw)
+			}
+			if strings.HasPrefix(value, "@") {
+				path := strings.TrimPrefix(value, "@")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return engine.Config{}, fmt.Errorf("--form %s: %w", name, err)
+				}
+				part, err := writer.CreateFormFile(name, filepath.Base(path))
+				if err != nil {
+					return engine.Config{}, err
+				}
+				if _, err := part.Write(data); err != nil {
+					return engine.Config{}, err
+				}
+			} else if err := writer.WriteField(name, value); err != nil {
+				return engine.Config{}, err
+			}
+		}
+		if err := writer.Close(); err != nil {
+			return engine.Config{}, err
+		}
+		body = buf.Bytes()
+		headers.Set("Content-Type", writer.FormDataContentType())
+	}
+
 	var rows []map[string]string
 	bodyTemplate := ""
 	if opts.dataFile != "" {
@@ -269,6 +310,15 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 	startRate, maxRate := opts.startRate, opts.maxRate
 	if mode == engine.ModeConstant {
 		startRate, maxRate = opts.rate, opts.rate
+	}
+
+	var scenario *engine.Scenario
+	if opts.scenario != "" {
+		loaded, err := loadScenario(opts.scenario)
+		if err != nil {
+			return engine.Config{}, err
+		}
+		scenario = loaded
 	}
 
 	var stages []engine.Stage
@@ -355,6 +405,7 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		MaxErrorRate: opts.maxErrorRate,
 		MaxP95:       opts.maxP95,
 		MaxStatus:    statusLimits,
+		Scenario:     scenario,
 		OAuth:        oauth,
 		AutoStop:     !opts.noAutoStop && (mode == engine.ModeRamp || mode == engine.ModeStep || mode == engine.ModeSpike || mode == engine.ModeVU),
 		Preflight:    !opts.noPreflight,
@@ -507,8 +558,10 @@ func executeDryRun(cfg engine.Config) error {
 	if err := engine.CheckTarget(ctx, cfg); err != nil {
 		return err
 	}
-	switch cfg.Method {
-	case http.MethodGet, http.MethodHead:
+	switch {
+	case cfg.Scenario != nil:
+		fmt.Println("  " + okStyle.Render("✓") + fmt.Sprintf(" escenario válido con %d pasos", len(cfg.Scenario.Steps)))
+	case cfg.Method == http.MethodGet || cfg.Method == http.MethodHead:
 		fmt.Println("  " + okStyle.Render("✓") + " el endpoint respondió correctamente")
 	default:
 		fmt.Println("  " + warnStyle.Render("!") + " comprobación HTTP omitida para " + cfg.Method +
@@ -528,6 +581,9 @@ func executeDryRun(cfg engine.Config) error {
 	}
 	if cfg.Mode == engine.ModeVU {
 		mode = fmt.Sprintf("vu %d usuarios · think %s", cfg.VUs, cfg.ThinkTime)
+	}
+	if cfg.Scenario != nil {
+		mode = fmt.Sprintf("escenario · %d pasos · %d VUs", len(cfg.Scenario.Steps), cfg.VUs)
 	}
 	fmt.Println("  " + kv("Objetivo", engine.SafeURL(cfg.URL)+" · "+cfg.Method))
 	fmt.Println("  " + kv("Modo", mode))

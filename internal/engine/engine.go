@@ -60,6 +60,7 @@ type Config struct {
 	MaxErrorRate float64
 	MaxP95       time.Duration
 	MaxStatus    map[int]uint64
+	Scenario     *Scenario
 	OAuth        OAuth2Config
 	Gate         *Gate
 	AutoStop     bool
@@ -149,6 +150,19 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("código HTTP inválido en --max-status: %d", code)
 		}
 	}
+	if c.Scenario != nil {
+		if c.Mode != ModeVU {
+			return fmt.Errorf("--scenario requiere --mode vu")
+		}
+		if len(c.Scenario.Steps) == 0 {
+			return fmt.Errorf("el escenario no tiene pasos")
+		}
+		for i, step := range c.Scenario.Steps {
+			if step.URL == "" && step.Path == "" {
+				return fmt.Errorf("paso %d (%s): falta path o url", i+1, step.Name)
+			}
+		}
+	}
 	if c.Method == "" {
 		c.Method = http.MethodGet
 	}
@@ -223,8 +237,10 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 		}
 	}
 	client := newHTTPClient(cfg, oauth)
-	if err := preflight(ctx, cfg, client); err != nil {
-		return nil, err
+	if cfg.Scenario == nil {
+		if err := preflight(ctx, cfg, client); err != nil {
+			return nil, err
+		}
 	}
 
 	builder := newTargetBuilder(cfg)
@@ -275,7 +291,11 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 		vuCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		stopAttack = cancel
-		results = runVUs(vuCtx, cfg, builder, client, cfg.Gate)
+		if cfg.Scenario != nil {
+			results = runScenarioVUs(vuCtx, cfg, client, cfg.Gate)
+		} else {
+			results = runVUs(vuCtx, cfg, builder, client, cfg.Gate)
+		}
 	} else {
 		attacker := vegeta.NewAttacker(
 			vegeta.Workers(uint64(cfg.Workers)),
