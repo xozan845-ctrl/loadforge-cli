@@ -318,6 +318,8 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
   tasa objetivo que se mantuvo saludable.
 - **✕ Fallo**: autenticación rechazada, la mayoría de peticiones falló o los
   umbrales se superaron en una carga constante.
+- **✕ Endpoint no encontrado**: la mayoría de respuestas fueron `404/405`;
+  revisa la ruta de `--url` y el método `-X`.
 - **◼ Interrumpido**: pulsaste Ctrl+C; los datos son parciales.
 
 ### Percentiles
