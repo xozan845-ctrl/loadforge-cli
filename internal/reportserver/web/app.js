@@ -181,6 +181,104 @@ function renderCharts(r) {
   window.addEventListener("resize", resize);
 }
 
+function renderClientChart(r) {
+  const el = document.getElementById("clientChart");
+  const timeline = r.timeline || [];
+  const hasSamples = timeline.some((p) => p.client_cpu_percent > 0);
+  if (!timeline.length || !hasSamples) {
+    el.append(node("div", "empty", "Sin muestras de CPU del cliente en esta ejecución."));
+    return;
+  }
+
+  const opts = {
+    width: Math.max(el.clientWidth || 560, 280),
+    height: 240,
+    padding: [12, 12, 0, 0],
+    cursor: { drag: { x: true, y: false } },
+    scales: { x: { time: false }, y: {}, y2: {} },
+    axes: [
+      {
+        stroke: "#64748b",
+        grid: { stroke: "#13203a", width: 1 },
+        ticks: { stroke: "#1e293b", width: 1 },
+        font: "10px ui-sans-serif, system-ui, sans-serif",
+        size: 36,
+      },
+      {
+        stroke: "#22d3ee",
+        grid: { stroke: "#13203a", width: 1 },
+        ticks: { stroke: "#1e293b", width: 1 },
+        font: "10px ui-sans-serif, system-ui, sans-serif",
+        size: 46,
+        scale: "y",
+        values: (_u, splits) => splits.map((v) => `${Math.round(v)}%`),
+      },
+      {
+        stroke: "#34d399",
+        grid: { show: false },
+        ticks: { stroke: "#1e293b", width: 1 },
+        font: "10px ui-sans-serif, system-ui, sans-serif",
+        size: 46,
+        scale: "y2",
+        side: 1,
+        values: (_u, splits) => splits.map((v) => `${Math.round(v)}`),
+      },
+    ],
+    series: [
+      {},
+      { label: "CPU cliente %", stroke: "#22d3ee", width: 2, scale: "y" },
+      { label: "req/s real", stroke: "#34d399", width: 2, scale: "y2" },
+    ],
+    legend: { show: true, live: false },
+  };
+
+  const data = [
+    timeline.map((p) => p.t),
+    timeline.map((p) => p.client_cpu_percent || 0),
+    timeline.map((p) => p.rate || 0),
+  ];
+  const chart = new uPlot(opts, data, el);
+  const resize = () => chart.setSize({ width: Math.max(chart.root.clientWidth, 280), height: 240 });
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(resize);
+    ro.observe(el);
+  }
+  window.addEventListener("resize", resize);
+}
+
+function timelineCSV(r) {
+  const header = [
+    "second", "requests", "errors", "error_rate",
+    "rate_rps", "target_rate_rps", "p50_ms", "p95_ms", "p99_ms",
+    "client_cpu_percent", "client_cpu_share_percent", "client_rss_bytes", "client_goroutines",
+  ];
+  const rows = (r.timeline || []).map((p) => [
+    p.t, p.requests, p.errors, p.error_rate,
+    p.rate, p.target_rate, p.p50, p.p95, p.p99,
+    p.client_cpu_percent || 0, p.client_cpu_share_percent || 0,
+    p.client_rss_bytes || 0, p.client_goroutines || 0,
+  ]);
+  return [header.join(",")].concat(rows.map((row) => row.join(","))).join("\n") + "\n";
+}
+
+function setupDownloads(r) {
+  if (!window.__LOADFORGE_REPORT__) return;
+  const jsonLink = document.getElementById("downloadJson");
+  const csvLink = document.getElementById("downloadCsv");
+  if (jsonLink) {
+    jsonLink.href = URL.createObjectURL(
+      new Blob([JSON.stringify(r, null, 2)], { type: "application/json" })
+    );
+    jsonLink.download = "loadforge-report.json";
+  }
+  if (csvLink) {
+    csvLink.href = URL.createObjectURL(
+      new Blob([timelineCSV(r)], { type: "text/csv;charset=utf-8" })
+    );
+    csvLink.download = "loadforge-timeline.csv";
+  }
+}
+
 function renderDist(r) {
   const wrap = document.getElementById("dist");
   wrap.replaceChildren();
@@ -394,6 +492,7 @@ function render(r) {
   renderVerdict(r);
   renderCards(r);
   renderCharts(r);
+  renderClientChart(r);
   renderDist(r);
   renderCodes(r);
   renderErrors(r);
@@ -404,9 +503,14 @@ function render(r) {
 
 (async function main() {
   try {
-    const res = await fetch("/api/report", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    render(await res.json());
+    let report = window.__LOADFORGE_REPORT__;
+    if (!report) {
+      const res = await fetch("/api/report", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      report = await res.json();
+    }
+    render(report);
+    setupDownloads(report);
   } catch (err) {
     const box = document.getElementById("verdict");
     box.classList.add("fail");

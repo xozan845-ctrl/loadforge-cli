@@ -58,6 +58,10 @@ type runOptions struct {
 	save    string
 	jsonOut bool
 	quiet   bool
+
+	dryRun          bool
+	exportHTML      string
+	failOnThreshold bool
 }
 
 func newRunCmd() *cobra.Command {
@@ -115,8 +119,11 @@ ventana de 5 segundos.`,
 	f.BoolVar(&opts.noOpen, "no-open", false, "No abrir el navegador automáticamente")
 	f.BoolVar(&opts.noServe, "no-serve", false, "No levantar el servidor del reporte")
 	f.StringVar(&opts.save, "save", "", "Guardar el reporte JSON en esta ruta")
+	f.StringVar(&opts.exportHTML, "export-html", "", "Guardar un reporte HTML autocontenido en esta ruta")
 	f.BoolVar(&opts.jsonOut, "json", false, "Imprimir el reporte JSON y salir (sin TUI ni servidor)")
 	f.BoolVar(&opts.quiet, "quiet", false, "Sin barra de progreso en vivo")
+	f.BoolVar(&opts.dryRun, "dry-run", false, "Validar URL, auth y TLS sin generar carga")
+	f.BoolVar(&opts.failOnThreshold, "fail-on-threshold", false, "Salir con código 1 si el veredicto no es pass")
 
 	_ = cmd.MarkFlagRequired("url")
 	return cmd
@@ -216,6 +223,10 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 }
 
 func executeRun(cfg engine.Config, opts *runOptions) error {
+	if opts.dryRun {
+		return executeDryRun(cfg)
+	}
+
 	var (
 		report *model.Report
 		err    error
@@ -238,13 +249,35 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 		}
 	}
 
+	var htmlPath string
+	if opts.exportHTML != "" {
+		htmlPath, err = reportserver.ExportHTML(report, opts.exportHTML)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, warnStyle.Render("⚠ ")+"no se pudo exportar el HTML: "+err.Error())
+			htmlPath = ""
+		}
+	}
+
 	if opts.jsonOut {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(report)
+		if err := enc.Encode(report); err != nil {
+			return err
+		}
+		if htmlPath != "" {
+			fmt.Fprintln(os.Stderr, "  HTML guardado en "+htmlPath)
+		}
+		return thresholdError(report.Verdict, opts.failOnThreshold)
 	}
 
 	printSummary(report, savedPath)
+	if htmlPath != "" {
+		fmt.Println("  " + okStyle.Render("✓") + " " + valueStyle.Render("HTML guardado en ") + mutedStyle.Render(htmlPath))
+		fmt.Println()
+	}
+	if err := thresholdError(report.Verdict, opts.failOnThreshold); err != nil {
+		return err
+	}
 
 	if opts.noServe {
 		if savedPath == "" {
@@ -267,6 +300,47 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 	waitForInterrupt()
 	fmt.Println()
 	fmt.Println("  " + mutedStyle.Render("Servidor cerrado."))
+	return nil
+}
+
+func thresholdError(v model.Verdict, enabled bool) error {
+	if !enabled || v.Status == model.VerdictPass {
+		return nil
+	}
+	return fmt.Errorf("la prueba no pasó el umbral: %s", v.Title)
+}
+
+func executeDryRun(cfg engine.Config) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	fmt.Println()
+	fmt.Println("  " + labelStyle.Render("Comprobación previa (--dry-run)"))
+	if err := engine.CheckTarget(ctx, cfg); err != nil {
+		return err
+	}
+	switch cfg.Method {
+	case http.MethodGet, http.MethodHead:
+		fmt.Println("  " + okStyle.Render("✓") + " el endpoint respondió correctamente")
+	default:
+		fmt.Println("  " + warnStyle.Render("!") + " comprobación HTTP omitida para " + cfg.Method +
+			" (evita efectos secundarios)")
+	}
+
+	mode := fmt.Sprintf("%s %.0f req/s", cfg.Mode, cfg.Rate)
+	if cfg.Mode == engine.ModeRamp {
+		mode = fmt.Sprintf("%s %.0f → %.0f req/s", cfg.Mode, cfg.StartRate, cfg.MaxRate)
+	}
+	fmt.Println("  " + kv("Objetivo", engine.SafeURL(cfg.URL)+" · "+cfg.Method))
+	fmt.Println("  " + kv("Modo", mode))
+	fmt.Println("  " + kv("Duración", cfg.Duration.String()))
+	fmt.Println("  " + kv("Umbrales", thresholdsText(model.Thresholds{
+		MaxErrorRate: cfg.MaxErrorRate,
+		MaxP95Ms:     float64(cfg.MaxP95.Milliseconds()),
+	})))
+	fmt.Println()
+	fmt.Println("  " + mutedStyle.Render("Configuración válida. No se generó carga."))
+	fmt.Println()
 	return nil
 }
 

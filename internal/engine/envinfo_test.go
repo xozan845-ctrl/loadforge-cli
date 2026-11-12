@@ -33,6 +33,21 @@ func TestDetectClientBottleneck(t *testing.T) {
 	}
 }
 
+func TestEnvSamplerAttachesTimelineSamples(t *testing.T) {
+	s := newEnvSampler()
+	time.Sleep(150 * time.Millisecond)
+	s.tick(time.Now())
+
+	points := []model.TimelinePoint{{T: 0}, {T: 1}}
+	s.attachTimeline(points)
+	if len(s.samples) == 0 {
+		t.Skip("platform does not expose process CPU time")
+	}
+	if points[0].ClientCPUPercent == 0 && points[1].ClientCPUPercent == 0 {
+		t.Fatalf("no client sample attached: %+v", points)
+	}
+}
+
 func TestEnvSamplerReportsRuntime(t *testing.T) {
 	s := newEnvSampler()
 	time.Sleep(10 * time.Millisecond)

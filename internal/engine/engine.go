@@ -165,19 +165,24 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 	results := attacker.Attack(targeter, pacer, cfg.Duration, "")
 
 	var (
-		lastProgress = time.Time{}
-		lastSample   = time.Time{}
-		checked      = 0
-		autoStopped  = false
-		stopReason   string
+		lastProgress  = time.Time{}
+		lastSample    = time.Time{}
+		lastGoroutine = time.Time{}
+		checked       = 0
+		autoStopped   = false
+		stopReason    string
 	)
 
 	for res := range results {
 		elapsed := time.Since(start)
 		agg.add(res, elapsed)
 
-		if time.Since(lastSample) >= 200*time.Millisecond {
+		if time.Since(lastGoroutine) >= 200*time.Millisecond {
 			sampler.sample()
+			lastGoroutine = time.Now()
+		}
+		if time.Since(lastSample) >= time.Second {
+			sampler.tick(time.Now())
 			lastSample = time.Now()
 		}
 
@@ -207,6 +212,7 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 
 	report := agg.report(interrupted, autoStopped, stopReason, end)
 	report.Environment = sampler.build(end)
+	sampler.attachTimeline(report.Timeline)
 	detectClientBottleneck(&report.Environment, cfg, report.Summary.Rate)
 	return report, nil
 }

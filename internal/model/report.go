@@ -99,6 +99,12 @@ type TimelinePoint struct {
 	P95        float64 `json:"p95"`
 	P99        float64 `json:"p99"`
 	ErrorRate  float64 `json:"error_rate"`
+
+	// Client-side pressure during that second, when available.
+	ClientCPUPercent      float64 `json:"client_cpu_percent,omitempty"`
+	ClientCPUSharePercent float64 `json:"client_cpu_share_percent,omitempty"`
+	ClientRSSBytes        uint64  `json:"client_rss_bytes,omitempty"`
+	ClientGoroutines      int     `json:"client_goroutines,omitempty"`
 }
 
 // Thresholds are the SLOs used to judge the run.

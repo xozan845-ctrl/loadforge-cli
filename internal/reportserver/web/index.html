@@ -20,8 +20,8 @@
         </div>
       </div>
       <div class="actions">
-        <a class="btn" href="/api/report.json" download>JSON</a>
-        <a class="btn" href="/api/timeline.csv" download>CSV</a>
+        <a class="btn" id="downloadJson" href="/api/report.json" download>JSON</a>
+        <a class="btn" id="downloadCsv" href="/api/timeline.csv" download>CSV</a>
         <button class="btn" type="button" onclick="window.print()">PDF</button>
       </div>
     </header>
@@ -55,6 +55,13 @@
           <span>peticiones por segundo</span>
         </div>
         <div id="rpsChart" class="chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Presión del cliente</h2>
+          <span>CPU del generador vs. carga real</span>
+        </div>
+        <div id="clientChart" class="chart"></div>
       </div>
     </section>
 

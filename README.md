@@ -50,7 +50,12 @@ Al terminar:
   descarga de JSON/CSV e impresión a PDF.
 - **Entorno y coste del cliente**: CPU, memoria, carga media, goroutines, heap
   y GC del equipo que genera la carga, con aviso si el propio cliente se
-  convierte en el cuello de botella.
+  convierte en el cuello de botella. La CPU del cliente también se dibuja en
+  el timeline junto a la carga real.
+- **Reporte autocontenido**: `--export-html` genera un único archivo HTML con
+  todo embebido, listo para compartir o guardar como artefacto de CI.
+- **Modo CI**: `--fail-on-threshold` devuelve código de salida 1 cuando el
+  veredicto no es `pass`, y `--dry-run` valida el objetivo sin generar carga.
 - **Redacción de secretos**: la API key nunca entra al reporte; los valores de
   query sensibles se reemplazan por `***`.
 
@@ -213,6 +218,42 @@ loadforge run \
   --json --save reportes/run-$(date +%Y%m%d-%H%M).json
 ```
 
+**Reporte HTML autocontenido:**
+
+```bash
+loadforge run \
+  --url https://api.ejemplo.com/health \
+  --export-html reportes/run.html \
+  --save reportes/run.json
+```
+
+El HTML incluye estilos, gráficas, datos y descargas: funciona sin conexión y
+se puede abrir después con cualquier navegador.
+
+**Como quality gate en CI:**
+
+```bash
+loadforge run \
+  --url https://api.ejemplo.com/health \
+  --mode constant --rate 100 --duration 30s \
+  --json --no-serve \
+  --export-html reporte.html \
+  --fail-on-threshold
+```
+
+Si el veredicto es `fail` o `limit`, el proceso termina con código 1. Valida la
+configuración sin lanzar carga con:
+
+```bash
+loadforge run --url https://api.ejemplo.com/health --dry-run
+```
+
+**Reabrir un reporte guardado:**
+
+```bash
+loadforge serve reportes/run.json
+```
+
 ### Servidor falso local
 
 El repo incluye `cmd/mockserver`, un backend de prueba que simula latencia y
@@ -305,8 +346,11 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--no-open` | `false` | No abrir el navegador. |
 | `--no-serve` | `false` | No levantar el servidor. |
 | `--save` | — | Guardar el JSON en una ruta o directorio. |
+| `--export-html` | — | Guardar un reporte HTML autocontenido. |
 | `--json` | `false` | Imprimir JSON y salir (sin TUI ni servidor). |
 | `--quiet` | `false` | Sin progreso en vivo. |
+| `--dry-run` | `false` | Validar URL, auth y TLS sin generar carga. |
+| `--fail-on-threshold` | `false` | Salir con código 1 si el veredicto no es `pass`. |
 
 ## Cómo leer el reporte
 
@@ -341,6 +385,11 @@ un par de fallos aislados. El reporte final sí usa los umbrales estrictos.
 Cada punto agrupa las respuestas **completadas** en ese segundo. Si el backend
 tarda más que la duración, esas respuestas en vuelo aparecen al final; el
 `--timeout` acota la espera.
+
+El reporte web añade una gráfica de **presión del cliente**: CPU del generador
+frente a la carga real. Si la CPU sube mientras los req/s reales se estancan,
+el límite está en el equipo que genera la carga. El CSV incluye esas columnas
+(`client_cpu_percent`, `client_rss_bytes`, etc.).
 
 ### Entorno y rendimiento del cliente
 
@@ -397,7 +446,8 @@ workers o prueba desde otra máquina antes de culpar al servidor.
 
 La arquitectura, los patrones aplicados, los compromisos y la ruta hacia una
 Clean/Hexagonal estricta están documentados en
-[**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md).
+[**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md). Las próximas mejoras, por
+fases, están en [**docs/ROADMAP.md**](docs/ROADMAP.md).
 
 ```bash
 go test ./...                # unitarios + integración con httptest

@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// CheckTarget validates the target without generating load. It is used by
+// `loadforge run --dry-run`.
+func CheckTarget(ctx context.Context, cfg Config) error {
+	cfg.Preflight = true
+	return preflight(ctx, cfg)
+}
+
 // preflight probes the endpoint once before generating load. It catches the
 // most common configuration mistakes (wrong route, bad credentials, service
 // down) without polluting the measured results.

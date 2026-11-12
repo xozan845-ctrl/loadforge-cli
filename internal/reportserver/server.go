@@ -138,6 +138,7 @@ func timelineHandler(report *model.Report) http.HandlerFunc {
 		_ = cw.Write([]string{
 			"second", "requests", "errors", "error_rate",
 			"rate_rps", "target_rate_rps", "p50_ms", "p95_ms", "p99_ms",
+			"client_cpu_percent", "client_cpu_share_percent", "client_rss_bytes", "client_goroutines",
 		})
 		for _, p := range report.Timeline {
 			_ = cw.Write([]string{
@@ -150,6 +151,10 @@ func timelineHandler(report *model.Report) http.HandlerFunc {
 				trimFloat(p.P50, 2),
 				trimFloat(p.P95, 2),
 				trimFloat(p.P99, 2),
+				trimFloat(p.ClientCPUPercent, 2),
+				trimFloat(p.ClientCPUSharePercent, 2),
+				strconv.FormatUint(p.ClientRSSBytes, 10),
+				strconv.Itoa(p.ClientGoroutines),
 			})
 		}
 		cw.Flush()

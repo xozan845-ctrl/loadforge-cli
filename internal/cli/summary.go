@@ -71,23 +71,45 @@ func printSummary(r *model.Report, savedPath string) {
 		}
 	}
 
-	rows = append(rows, kv("Latencia", fmt.Sprintf("P50 %s · P90 %s · P95 %s · P99 %s",
-		formatMs(r.Latency.P50), formatMs(r.Latency.P90), formatMs(r.Latency.P95), formatMs(r.Latency.P99))))
-	rows = append(rows, kv("Transferencia", fmt.Sprintf("%s recibidos · %s enviados",
-		humanBytes(r.Summary.BytesIn), humanBytes(r.Summary.BytesOut))))
+	narrow := contentWidth < 58
+	if narrow {
+		rows = append(rows, kv("Latencia", fmt.Sprintf("P50 %s · P95 %s",
+			formatMs(r.Latency.P50), formatMs(r.Latency.P95))))
+		rows = append(rows, kv("Cola", fmt.Sprintf("P99 %s · máx %s",
+			formatMs(r.Latency.P99), formatMs(r.Latency.Max))))
+		rows = append(rows, kv("Tráfico", fmt.Sprintf("%s ↓ · %s ↑",
+			humanBytes(r.Summary.BytesIn), humanBytes(r.Summary.BytesOut))))
+	} else {
+		rows = append(rows, kv("Latencia", fmt.Sprintf("P50 %s · P90 %s · P95 %s · P99 %s",
+			formatMs(r.Latency.P50), formatMs(r.Latency.P90), formatMs(r.Latency.P95), formatMs(r.Latency.P99))))
+		rows = append(rows, kv("Transferencia", fmt.Sprintf("%s recibidos · %s enviados",
+			humanBytes(r.Summary.BytesIn), humanBytes(r.Summary.BytesOut))))
+	}
 
 	if r.Meta.Mode == "ramp" {
 		switch v.Status {
 		case model.VerdictLimit:
-			rows = append(rows, kv("Capacidad", fmt.Sprintf("~%.0f req/s sostenidos (límite detectado)", v.BreakingRate)))
+			if narrow {
+				rows = append(rows, kv("Capacidad", fmt.Sprintf("~%.0f req/s (límite)", v.BreakingRate)))
+			} else {
+				rows = append(rows, kv("Capacidad", fmt.Sprintf("~%.0f req/s sostenidos (límite detectado)", v.BreakingRate)))
+			}
 		case model.VerdictPass:
-			rows = append(rows, kv("Capacidad", fmt.Sprintf("hasta %.0f req/s sin punto de quiebre", r.Meta.RateMax)))
+			if narrow {
+				rows = append(rows, kv("Capacidad", fmt.Sprintf("hasta %.0f req/s", r.Meta.RateMax)))
+			} else {
+				rows = append(rows, kv("Capacidad", fmt.Sprintf("hasta %.0f req/s sin punto de quiebre", r.Meta.RateMax)))
+			}
 		}
 	}
-	rows = append(rows, kv("Umbrales", thresholdsText(r.Thresholds)))
-	rows = append(rows, kv("Entorno", environmentText(r.Environment)))
-	rows = append(rows, kv("Cliente", clientText(r.Environment)))
-	if resources := clientResourcesText(r.Environment); resources != "" {
+	if narrow {
+		rows = append(rows, kv("Umbrales", thresholdsTextNarrow(r.Thresholds)))
+	} else {
+		rows = append(rows, kv("Umbrales", thresholdsText(r.Thresholds)))
+	}
+	rows = append(rows, kv("Entorno", environmentText(r.Environment, narrow)))
+	rows = append(rows, kv("Cliente", clientText(r.Environment, narrow)))
+	if resources := clientResourcesText(r.Environment, narrow); resources != "" {
 		rows = append(rows, kv("Recursos", resources))
 	}
 
@@ -185,23 +207,34 @@ func thresholdsText(t model.Thresholds) string {
 	return "P95 sin umbral · " + errPart
 }
 
-func environmentText(e model.Environment) string {
+func environmentText(e model.Environment, narrow bool) string {
 	parts := []string{e.OS + "/" + e.Arch}
 	if e.CPUs > 0 {
 		parts = append(parts, fmt.Sprintf("%d CPU", e.CPUs))
 	}
-	if e.GOMAXPROCS > 0 && e.GOMAXPROCS != e.CPUs {
+	if !narrow && e.GOMAXPROCS > 0 && e.GOMAXPROCS != e.CPUs {
 		parts = append(parts, fmt.Sprintf("GOMAXPROCS %d", e.GOMAXPROCS))
 	}
 	if e.MemoryTotalBytes > 0 {
-		parts = append(parts, humanBytes(e.MemoryTotalBytes)+" RAM")
+		if narrow {
+			parts = append(parts, humanBytes(e.MemoryTotalBytes))
+		} else {
+			parts = append(parts, humanBytes(e.MemoryTotalBytes)+" RAM")
+		}
 	}
 	return strings.Join(parts, " · ")
 }
 
-func clientText(e model.Environment) string {
+func clientText(e model.Environment, narrow bool) string {
 	if e.ProcessCPUPercent <= 0 {
-		return "CPU no disponible en esta plataforma"
+		return "no disponible"
+	}
+	if narrow {
+		cpu := fmt.Sprintf("CPU %.1f%%", e.ProcessCPUPercent)
+		if e.ProcessCPUSharePercent > 0 {
+			cpu += fmt.Sprintf(" (%.1f%%)", e.ProcessCPUSharePercent)
+		}
+		return cpu
 	}
 	cpu := fmt.Sprintf("CPU %.1f%% de un núcleo", e.ProcessCPUPercent)
 	if e.ProcessCPUSharePercent > 0 {
@@ -210,10 +243,14 @@ func clientText(e model.Environment) string {
 	return cpu
 }
 
-func clientResourcesText(e model.Environment) string {
+func clientResourcesText(e model.Environment, narrow bool) string {
 	var parts []string
 	if e.MaxRSSBytes > 0 {
-		parts = append(parts, humanBytes(e.MaxRSSBytes)+" RSS")
+		if narrow {
+			parts = append(parts, humanBytes(e.MaxRSSBytes))
+		} else {
+			parts = append(parts, humanBytes(e.MaxRSSBytes)+" RSS")
+		}
 	}
 	if e.GoroutinesMax > 0 {
 		parts = append(parts, fmt.Sprintf("%d goroutines", e.GoroutinesMax))
@@ -222,6 +259,14 @@ func clientResourcesText(e model.Environment) string {
 		parts = append(parts, fmt.Sprintf("GC %d×", e.NumGC))
 	}
 	return strings.Join(parts, " · ")
+}
+
+func thresholdsTextNarrow(t model.Thresholds) string {
+	errPart := fmt.Sprintf("err ≤ %.2f%%", t.MaxErrorRate*100)
+	if t.MaxP95Ms > 0 {
+		return fmt.Sprintf("P95 ≤ %s · %s", formatMs(t.MaxP95Ms), errPart)
+	}
+	return errPart
 }
 
 func formatDuration(d time.Duration) string {

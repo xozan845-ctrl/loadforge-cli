@@ -54,6 +54,6 @@ LOADFORGE_API_KEY para que no quede en el historial del shell.`,
 			return cmd.Help()
 		},
 	}
-	root.AddCommand(newRunCmd())
+	root.AddCommand(newRunCmd(), newServeCmd())
 	return root
 }

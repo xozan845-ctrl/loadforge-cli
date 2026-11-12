@@ -24,18 +24,35 @@ type envSample struct {
 	kernel      string
 }
 
+// clientSample is one second of client-side pressure.
+type clientSample struct {
+	at         time.Duration
+	cpuPercent float64
+	cpuShare   float64
+	rssBytes   uint64
+	goroutines int
+}
+
 // envSampler measures the cost of generating the load. It takes a baseline
-// before the attack and a final sample when the run ends.
+// before the attack, periodic samples during it and a final sample when the
+// run ends.
 type envSampler struct {
 	start         envSample
 	started       time.Time
+	prev          envSample
+	prevAt        time.Time
 	maxGoroutines int
+	samples       []clientSample
 }
 
 func newEnvSampler() *envSampler {
+	start := readEnvSample()
+	now := time.Now()
 	s := &envSampler{
-		start:   readEnvSample(),
-		started: time.Now(),
+		start:   start,
+		started: now,
+		prev:    start,
+		prevAt:  now,
 	}
 	s.sample()
 	return s
@@ -46,6 +63,70 @@ func newEnvSampler() *envSampler {
 func (s *envSampler) sample() {
 	if n := runtime.NumGoroutine(); n > s.maxGoroutines {
 		s.maxGoroutines = n
+	}
+}
+
+// tick records one client sample, computing CPU usage since the previous
+// tick. It is called once per second during the attack.
+func (s *envSampler) tick(now time.Time) {
+	s.sample()
+
+	cur := readEnvSample()
+	if s.prev.cpuOK && cur.cpuOK {
+		dt := now.Sub(s.prevAt)
+		if dt >= 100*time.Millisecond {
+			used := (cur.cpuUser + cur.cpuSys) - (s.prev.cpuUser + s.prev.cpuSys)
+			if used >= 0 {
+				pct := float64(used) / float64(dt) * 100
+				parallelism := runtime.GOMAXPROCS(0)
+				if parallelism < 1 {
+					parallelism = runtime.NumCPU()
+				}
+				share := 0.0
+				if parallelism > 0 {
+					share = pct / float64(parallelism)
+				}
+				s.samples = append(s.samples, clientSample{
+					at:         now.Sub(s.started),
+					cpuPercent: pct,
+					cpuShare:   share,
+					rssBytes:   cur.maxRSSBytes,
+					goroutines: runtime.NumGoroutine(),
+				})
+			}
+		}
+	}
+	s.prev = cur
+	s.prevAt = now
+}
+
+// attachTimeline copies the nearest client sample into each timeline bucket.
+// Buckets without a close sample are left empty instead of inventing data.
+func (s *envSampler) attachTimeline(points []model.TimelinePoint) {
+	if len(s.samples) == 0 {
+		return
+	}
+	for i := range points {
+		want := time.Duration(points[i].T * float64(time.Second))
+		best := -1
+		var bestDiff time.Duration
+		for j := range s.samples {
+			diff := s.samples[j].at - want
+			if diff < 0 {
+				diff = -diff
+			}
+			if best < 0 || diff < bestDiff {
+				best = j
+				bestDiff = diff
+			}
+		}
+		if best >= 0 && bestDiff <= 750*time.Millisecond {
+			sample := s.samples[best]
+			points[i].ClientCPUPercent = sample.cpuPercent
+			points[i].ClientCPUSharePercent = sample.cpuShare
+			points[i].ClientRSSBytes = sample.rssBytes
+			points[i].ClientGoroutines = sample.goroutines
+		}
 	}
 }
 
