@@ -5,19 +5,20 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestScenarioExtractsVariablesAndReportsSteps(t *testing.T) {
-	var sawToken bool
+	var sawToken atomic.Bool
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"token": "tok-1"})
 	})
 	mux.HandleFunc("/items", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "Bearer tok-1" {
-			sawToken = true
+			sawToken.Store(true)
 		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
@@ -45,7 +46,7 @@ func TestScenarioExtractsVariablesAndReportsSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !sawToken {
+	if !sawToken.Load() {
 		t.Fatal("second step did not receive the extracted token")
 	}
 	if len(report.Steps) != 2 {
