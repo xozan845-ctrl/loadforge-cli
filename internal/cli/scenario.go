@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/xozan845-ctrl/loadforge-cli/internal/engine"
 )
@@ -14,7 +18,12 @@ func loadScenario(path string) (*engine.Scenario, error) {
 		return nil, fmt.Errorf("no se pudo leer --scenario: %w", err)
 	}
 	var sc engine.Scenario
-	if err := json.Unmarshal(data, &sc); err != nil {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".yaml" || ext == ".yml" {
+		if err := yaml.Unmarshal(data, &sc); err != nil {
+			return nil, fmt.Errorf("escenario YAML inválido: %w", err)
+		}
+	} else if err := json.Unmarshal(data, &sc); err != nil {
 		return nil, fmt.Errorf("escenario JSON inválido: %w", err)
 	}
 	if len(sc.Steps) == 0 {

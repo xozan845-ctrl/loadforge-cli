@@ -6,10 +6,12 @@ require (
 	github.com/HdrHistogram/hdrhistogram-go v1.4.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.2
 	github.com/tsenart/vegeta/v12 v12.13.0
 	golang.org/x/sys v0.36.0
 	golang.org/x/term v0.22.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -22,6 +24,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/influxdata/tdigest v0.0.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

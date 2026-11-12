@@ -59,6 +59,7 @@ type runOptions struct {
 	maxWorkers int
 	vus        int
 	thinkTime  time.Duration
+	message    string
 	timeout    time.Duration
 	insecure   bool
 	maxBody    int64
@@ -77,6 +78,7 @@ type runOptions struct {
 	jsonOut bool
 	quiet   bool
 
+	historyDir      string
 	noWakeLock      bool
 	dryRun          bool
 	baseline        string
@@ -127,7 +129,7 @@ ventana de 5 segundos.`,
 	f.StringArrayVar(&opts.form, "form", nil, "Campo multipart name=value o name=@archivo (repetible)")
 	f.StringVar(&opts.contentType, "content-type", "", "Content-Type (por defecto application/json si hay body)")
 
-	f.StringVar(&opts.mode, "mode", engine.ModeRamp, "Modo: ramp, constant, step, spike, soak o vu")
+	f.StringVar(&opts.mode, "mode", engine.ModeRamp, "Modo: ramp, constant, step, spike, soak, vu o ws")
 	f.Float64VarP(&opts.rate, "rate", "r", 20, "Peticiones por segundo en modo constant o soak")
 	f.Float64Var(&opts.startRate, "start-rate", 1, "req/s inicial en modo ramp")
 	f.Float64Var(&opts.maxRate, "max-rate", 50, "req/s máximo en modo ramp")
@@ -138,6 +140,7 @@ ventana de 5 segundos.`,
 	f.IntVar(&opts.maxWorkers, "max-workers", 0, "Máximo de workers (0 = automático)")
 	f.IntVar(&opts.vus, "vus", 10, "Usuarios virtuales en --mode vu")
 	f.DurationVar(&opts.thinkTime, "think-time", 0, "Pausa entre peticiones por VU (ej. 1s)")
+	f.StringVar(&opts.message, "message", "ping", "Mensaje de texto en --mode ws")
 	f.DurationVarP(&opts.timeout, "timeout", "t", 10*time.Second, "Timeout por petición")
 	f.BoolVar(&opts.insecure, "insecure", false, "No verificar certificados TLS (solo pruebas)")
 	f.Int64Var(&opts.maxBody, "max-body", 4096, "Bytes máximos de respuesta a leer por petición")
@@ -153,6 +156,7 @@ ventana de 5 segundos.`,
 	f.BoolVar(&opts.noOpen, "no-open", false, "No abrir el navegador automáticamente")
 	f.BoolVar(&opts.noServe, "no-serve", false, "No levantar el servidor del reporte")
 	f.StringVar(&opts.save, "save", "", "Guardar el reporte JSON en esta ruta")
+	f.StringVar(&opts.historyDir, "history-dir", "", "Guardar una copia en el historial local")
 	f.StringVar(&opts.baseline, "baseline", "", "Comparar esta ejecución contra un reporte guardado")
 	f.StringVar(&opts.exportHTML, "export-html", "", "Guardar un reporte HTML autocontenido en esta ruta")
 	f.StringVar(&opts.exportCSV, "export-csv", "", "Guardar resumen y timeline en CSV (ruta o directorio)")
@@ -399,6 +403,7 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		MaxWorkers:   maxWorkers,
 		VUs:          opts.vus,
 		ThinkTime:    opts.thinkTime,
+		Message:      opts.message,
 		Timeout:      opts.timeout,
 		Insecure:     opts.insecure,
 		MaxBody:      opts.maxBody,
@@ -407,7 +412,7 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		MaxStatus:    statusLimits,
 		Scenario:     scenario,
 		OAuth:        oauth,
-		AutoStop:     !opts.noAutoStop && (mode == engine.ModeRamp || mode == engine.ModeStep || mode == engine.ModeSpike || mode == engine.ModeVU),
+		AutoStop:     !opts.noAutoStop && (mode == engine.ModeRamp || mode == engine.ModeStep || mode == engine.ModeSpike || mode == engine.ModeVU || mode == engine.ModeWS),
 		Preflight:    !opts.noPreflight,
 		Version:      version.Version,
 	}
@@ -468,6 +473,13 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, warnStyle.Render("⚠ ")+"no se pudo guardar el reporte: "+err.Error())
 			savedPath = ""
+		}
+	}
+
+	if opts.historyDir != "" {
+		path := filepath.Join(opts.historyDir, historyFileName(time.Now()))
+		if _, err := saveReport(path, report); err != nil {
+			fmt.Fprintln(os.Stderr, warnStyle.Render("⚠ ")+"no se pudo guardar en el historial: "+err.Error())
 		}
 	}
 
@@ -584,6 +596,9 @@ func executeDryRun(cfg engine.Config) error {
 	}
 	if cfg.Scenario != nil {
 		mode = fmt.Sprintf("escenario · %d pasos · %d VUs", len(cfg.Scenario.Steps), cfg.VUs)
+	}
+	if cfg.Mode == engine.ModeWS {
+		mode = fmt.Sprintf("ws · %d VUs · think %s · %q", cfg.VUs, cfg.ThinkTime, cfg.Message)
 	}
 	fmt.Println("  " + kv("Objetivo", engine.SafeURL(cfg.URL)+" · "+cfg.Method))
 	fmt.Println("  " + kv("Modo", mode))

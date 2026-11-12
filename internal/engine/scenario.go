@@ -18,18 +18,19 @@ import (
 // Scenario is a multi-step user flow. Steps run in order; variables extracted
 // from one response are available to the next ones.
 type Scenario struct {
-	Steps []ScenarioStep `json:"steps"`
+	Steps []ScenarioStep `json:"steps" yaml:"steps"`
 }
 
 // ScenarioStep is one request in a scenario.
 type ScenarioStep struct {
-	Name    string            `json:"name"`
-	Method  string            `json:"method"`
-	Path    string            `json:"path"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
-	Extract map[string]string `json:"extract"`
+	Name    string            `json:"name" yaml:"name"`
+	Method  string            `json:"method" yaml:"method"`
+	Path    string            `json:"path" yaml:"path"`
+	URL     string            `json:"url" yaml:"url"`
+	Headers map[string]string `json:"headers" yaml:"headers"`
+	Body    string            `json:"body" yaml:"body"`
+	Extract map[string]string `json:"extract" yaml:"extract"`
+	PauseMs int               `json:"pause_ms" yaml:"pause_ms"`
 }
 
 var scenarioVar = regexp.MustCompile(`\{\{\.([A-Za-z0-9_]+)\}\}`)
@@ -119,6 +120,15 @@ func runScenarioVUs(ctx context.Context, cfg Config, client *http.Client, gate *
 					res, ok := runScenarioStep(ctx, cfg, client, runner, step, vars)
 					if !ok || !send(res) {
 						return
+					}
+					if step.PauseMs > 0 {
+						timer := time.NewTimer(time.Duration(step.PauseMs) * time.Millisecond)
+						select {
+						case <-timer.C:
+						case <-ctx.Done():
+							timer.Stop()
+							return
+						}
 					}
 				}
 				if cfg.ThinkTime > 0 {

@@ -29,7 +29,7 @@ func CheckTarget(ctx context.Context, cfg Config) error {
 // It is intentionally limited to safe methods: sending a real POST/PUT/PATCH/
 // DELETE before the test could create or modify data twice.
 func preflight(ctx context.Context, cfg Config, client *http.Client) error {
-	if !cfg.Preflight || cfg.Scenario != nil {
+	if !cfg.Preflight || cfg.Scenario != nil || cfg.Mode == ModeWS {
 		return nil
 	}
 	switch cfg.Method {

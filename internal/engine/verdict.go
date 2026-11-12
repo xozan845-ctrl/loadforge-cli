@@ -85,9 +85,9 @@ func buildVerdict(
 	latencyBreach := cfg.MaxP95 > 0 && lat.P95 > float64(cfg.MaxP95.Milliseconds())
 	errorBreach := summary.ErrorRate > cfg.MaxErrorRate
 
-	if cfg.Mode == ModeConstant || cfg.Mode == ModeSoak || cfg.Mode == ModeVU {
+	if cfg.Mode == ModeConstant || cfg.Mode == ModeSoak || cfg.Mode == ModeVU || cfg.Mode == ModeWS {
 		rate := cfg.AverageRate()
-		if cfg.Mode == ModeVU {
+		if cfg.Mode == ModeVU || cfg.Mode == ModeWS {
 			rate = summary.Rate
 		}
 		v.Status = model.VerdictPass
@@ -305,7 +305,7 @@ func recommendations(
 	if autoStopped && stopReason != "" {
 		add("La prueba se detuvo automáticamente al superar los umbrales. Usa --no-autostop para exprimir el sistema hasta el final.")
 	}
-	if len(timeline) > 0 && cfg.Mode != ModeConstant && cfg.Mode != ModeSoak && cfg.Mode != ModeVU {
+	if len(timeline) > 0 && cfg.Mode != ModeConstant && cfg.Mode != ModeSoak && cfg.Mode != ModeVU && cfg.Mode != ModeWS {
 		_, _, found := findBreaking(timeline, cfg)
 		if !found && summary.Requests > 0 {
 			if cfg.Mode == ModeRamp {

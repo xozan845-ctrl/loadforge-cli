@@ -298,6 +298,9 @@ func modeLabel(cfg engine.Config) string {
 		}
 		return fmt.Sprintf("%s %s req/s · %s", cfg.Mode, strings.Join(parts, "→"), cfg.Duration)
 	}
+	if cfg.Mode == engine.ModeWS {
+		return fmt.Sprintf("ws %d VUs · %q · %s", cfg.VUs, cfg.Message, cfg.Duration)
+	}
 	if cfg.Mode == engine.ModeRamp {
 		return fmt.Sprintf("ramp %.0f → %.0f req/s · %s", cfg.StartRate, cfg.MaxRate, cfg.Duration)
 	}

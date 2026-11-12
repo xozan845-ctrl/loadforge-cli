@@ -25,6 +25,7 @@ const (
 	ModeSpike    = "spike"
 	ModeSoak     = "soak"
 	ModeVU       = "vu"
+	ModeWS       = "ws"
 )
 
 // Stage is one step of a staged profile. For step and soak the rate is held
@@ -53,6 +54,7 @@ type Config struct {
 	MaxWorkers int
 	VUs        int
 	ThinkTime  time.Duration
+	Message    string
 	Timeout    time.Duration
 	Insecure   bool
 	MaxBody    int64
@@ -75,7 +77,11 @@ func (c *Config) Validate() error {
 	if err != nil {
 		return fmt.Errorf("URL inválida: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
+	if c.Mode == ModeWS {
+		if !validWSURL(c.URL) {
+			return fmt.Errorf("--mode ws requiere una URL ws:// o wss://")
+		}
+	} else if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("la URL debe empezar por http:// o https://")
 	}
 	if u.Host == "" {
@@ -97,6 +103,13 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("max-rate debe ser mayor o igual que start-rate")
 		}
 	case ModeVU:
+		if c.VUs < 1 {
+			return fmt.Errorf("--vus debe ser al menos 1")
+		}
+		if c.ThinkTime < 0 {
+			return fmt.Errorf("--think-time no puede ser negativo")
+		}
+	case ModeWS:
 		if c.VUs < 1 {
 			return fmt.Errorf("--vus debe ser al menos 1")
 		}
@@ -237,7 +250,7 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 		}
 	}
 	client := newHTTPClient(cfg, oauth)
-	if cfg.Scenario == nil {
+	if cfg.Scenario == nil && cfg.Mode != ModeWS {
 		if err := preflight(ctx, cfg, client); err != nil {
 			return nil, err
 		}
@@ -253,10 +266,12 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 		return nil
 	}
 	// Validate headers/URL once, before the attack starts.
-	if probe, err := builder.build(); err != nil {
-		return nil, fmt.Errorf("no se pudo construir la petición: %w", err)
-	} else if _, err := probe.Request(); err != nil {
-		return nil, fmt.Errorf("no se pudo construir la petición: %w", err)
+	if cfg.Mode != ModeWS {
+		if probe, err := builder.build(); err != nil {
+			return nil, fmt.Errorf("no se pudo construir la petición: %w", err)
+		} else if _, err := probe.Request(); err != nil {
+			return nil, fmt.Errorf("no se pudo construir la petición: %w", err)
+		}
 	}
 
 	var pacer vegeta.Pacer
@@ -287,7 +302,12 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 
 	var results <-chan *vegeta.Result
 	stopAttack := func() {}
-	if cfg.Mode == ModeVU {
+	if cfg.Mode == ModeWS {
+		wsCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stopAttack = cancel
+		results = runWSVUs(wsCtx, cfg, cfg.Gate)
+	} else if cfg.Mode == ModeVU {
 		vuCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		stopAttack = cancel

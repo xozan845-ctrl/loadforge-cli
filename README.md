@@ -72,6 +72,9 @@ Al terminar:
 - **Escenarios multi-paso**: flujos en JSON con extracción de variables entre
   pasos y métricas por paso.
 - **Multipart**: subida de formularios y archivos con `--form`.
+- **WebSocket**: modo `ws` con VUs, mensajes y latencia de ida y vuelta.
+- **Escenarios YAML** con pausas por paso.
+- **Historial local**: `--history-dir` y comando `loadforge history`.
 - **Redacción de secretos**: la API key nunca entra al reporte; los valores de
   query sensibles se reemplazan por `***`.
 
@@ -321,6 +324,27 @@ loadforge run --url https://api.ejemplo.com/upload \
   --method POST --form name=demo --form avatar=@foto.png
 ```
 
+**WebSocket:**
+
+```bash
+loadforge run --url wss://api.ejemplo.com/ws \
+  --mode ws --vus 20 --message '{"type":"ping"}' \
+  --think-time 100ms --duration 1m
+```
+
+Cada VU abre una conexión, envía el mensaje, espera la respuesta y mide el
+round-trip. Asume un servidor de eco; los errores de conexión también cuentan.
+
+**Historial local:**
+
+```bash
+loadforge run --url https://api.ejemplo.com/health \
+  --history-dir ~/.local/share/loadforge/history
+
+loadforge history
+loadforge history --json
+```
+
 **POST con JSON:**
 
 ```bash
@@ -474,8 +498,9 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `-d, --duration` | `30s` | Duración (`30s`, `2m`, `1h`). |
 | `-c, --workers` | `10` | Workers iniciales (modelo abierto). |
 | `--max-workers` | auto | Tope de concurrencia (auto = 2× `max-rate`, mín. 100). |
-| `--vus` | `10` | Usuarios virtuales en `--mode vu`. |
+| `--vus` | `10` | Usuarios virtuales en `--mode vu` o conexiones en `ws`. |
 | `--think-time` | `0` | Pausa por VU entre peticiones (ej. `1s`). |
+| `--message` | `ping` | Mensaje de texto en `--mode ws`. |
 | `-t, --timeout` | `10s` | Timeout por petición. |
 | `--insecure` | `false` | No verificar TLS (solo pruebas). |
 | `--max-body` | `4096` | Bytes de respuesta leídos por petición. |
@@ -490,6 +515,7 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--no-open` | `false` | No abrir el navegador. |
 | `--no-serve` | `false` | No levantar el servidor. |
 | `--save` | — | Guardar el JSON en una ruta o directorio. |
+| `--history-dir` | — | Guardar una copia en el historial local. |
 | `--baseline` | — | Comparar la ejecución contra un reporte guardado. |
 | `--export-html` | — | Guardar un reporte HTML autocontenido. |
 | `--export-csv` | — | Guardar resumen y timeline en CSV. |

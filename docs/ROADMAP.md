@@ -37,12 +37,18 @@ cruzados y documentación actualizada antes de pasar a la siguiente.
 - [x] Métricas por paso en el reporte.
 - [x] Multipart con `--form` (campos y archivos).
 
-## Fase 4B — Protocolos y escala (`v0.7.0`)
+## Fase 4B — Protocolos y local (`v0.7.0`)
 
-- [ ] gRPC y WebSocket.
-- [ ] Pesos, pausas por paso y escenarios en YAML.
+- [x] WebSocket (`--mode ws`, `--message`).
+- [x] Escenarios YAML y pausas por paso (`pause_ms`).
+- [x] Historial local con `--history-dir` y `loadforge history`.
+
+## Fase 4C — gRPC y distribuido (`v0.7.1`)
+
+- [ ] gRPC unario con reflexión/proto.
+- [ ] Escenarios con pesos y variables complejas.
 - [ ] Modo distribuido con agentes y coordinador.
-- [ ] Historial local de ejecuciones y tendencias.
+- [ ] Tendencias históricas en el reporte web.
 
 ## Fase 5 — Calidad y distribución (`v0.8.0`)
 

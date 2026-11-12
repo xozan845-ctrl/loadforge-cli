@@ -565,8 +565,8 @@ function renderMeta(r) {
       .join(" → ");
   } else if (m.mode === "ramp") {
     mode = `ramp · ${fmtNum.format(m.rate_start)} → ${fmtNum.format(m.rate_max)} req/s`;
-  } else if (m.mode === "vu") {
-    mode = `vu · ${m.vus} usuarios · think ${ms(m.think_time_ms || 0)}`;
+  } else if (m.mode === "vu" || m.mode === "ws") {
+    mode = `${m.mode} · ${m.vus} usuarios · think ${ms(m.think_time_ms || 0)}`;
   } else {
     mode = `constant · ${fmtNum.format(m.rate_max || m.rate_start)} req/s`;
   }
@@ -586,7 +586,7 @@ function renderMeta(r) {
     },
     {
       k: "Concurrencia",
-      v: m.mode === "vu"
+      v: m.mode === "vu" || m.mode === "ws"
         ? `${m.vus} VUs · think ${ms(m.think_time_ms || 0)}`
         : `${m.workers} workers iniciales · ${m.max_workers} máximo`,
     },
