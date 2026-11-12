@@ -1,5 +1,9 @@
 # ⚡ LoadForge
 
+[![CI](https://github.com/xozan845-ctrl/loadforge-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xozan845-ctrl/loadforge-cli/actions/workflows/ci.yml)
+[![Release](https://github.com/xozan845-ctrl/loadforge-cli/actions/workflows/release.yml/badge.svg)](https://github.com/xozan845-ctrl/loadforge-cli/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22d3ee.svg)](LICENSE)
+
 Pruebas de carga para APIs, desde la terminal. Le das una URL y una API key;
 LoadForge genera carga real, mide latencias, errores y throughput, estima el
 punto de quiebre y te sirve un reporte interactivo en `localhost`.
@@ -60,6 +64,7 @@ En `dist/` hay binarios para:
 | Linux ARM64 (Raspberry Pi, etc.) | `loadforge-linux-arm64` |
 | Windows x86_64 | `loadforge-windows-amd64.exe` |
 | macOS Apple Silicon | `loadforge-darwin-arm64` |
+| macOS Intel | `loadforge-darwin-amd64` |
 
 En **Termux**:
 
