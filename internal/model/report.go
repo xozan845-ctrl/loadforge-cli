@@ -22,7 +22,18 @@ type Report struct {
 	Verdict       Verdict         `json:"verdict"`
 	Environment   Environment     `json:"environment"`
 	Steps         []StepReport    `json:"steps,omitempty"`
+	History       []HistoryPoint  `json:"history,omitempty"`
 	Comparison    *Comparison     `json:"comparison,omitempty"`
+}
+
+// HistoryPoint is one run in the local trend series.
+type HistoryPoint struct {
+	At        time.Time `json:"at"`
+	Mode      string    `json:"mode"`
+	P95Ms     float64   `json:"p95_ms"`
+	Rate      float64   `json:"rate"`
+	ErrorRate float64   `json:"error_rate"`
+	Verdict   string    `json:"verdict"`
 }
 
 // StepReport aggregates one step of a multi-step scenario.

@@ -97,6 +97,17 @@ func newHistoryCmd() *cobra.Command {
 	return cmd
 }
 
+func historyPoint(report *model.Report) model.HistoryPoint {
+	return model.HistoryPoint{
+		At:        report.Meta.StartedAt,
+		Mode:      report.Meta.Mode,
+		P95Ms:     report.Latency.P95,
+		Rate:      report.Summary.Rate,
+		ErrorRate: report.Summary.ErrorRate,
+		Verdict:   report.Verdict.Status,
+	}
+}
+
 func historyFileName(now time.Time) string {
 	return "run-" + now.Format("20060102-150405.000") + ".json"
 }

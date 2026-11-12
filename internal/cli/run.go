@@ -477,6 +477,18 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 	}
 
 	if opts.historyDir != "" {
+		points := make([]model.HistoryPoint, 0, 21)
+		if previous, err := loadHistory(opts.historyDir); err == nil {
+			for _, p := range previous {
+				points = append(points, historyPoint(p))
+			}
+		}
+		points = append(points, historyPoint(report))
+		if len(points) > 20 {
+			points = points[len(points)-20:]
+		}
+		report.History = points
+
 		path := filepath.Join(opts.historyDir, historyFileName(time.Now()))
 		if _, err := saveReport(path, report); err != nil {
 			fmt.Fprintln(os.Stderr, warnStyle.Render("⚠ ")+"no se pudo guardar en el historial: "+err.Error())

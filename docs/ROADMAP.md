@@ -48,7 +48,7 @@ cruzados y documentación actualizada antes de pasar a la siguiente.
 - [ ] gRPC unario con reflexión/proto.
 - [ ] Escenarios con pesos y variables complejas.
 - [ ] Modo distribuido con agentes y coordinador.
-- [ ] Tendencias históricas en el reporte web.
+- [x] Tendencias históricas en el reporte web.
 
 ## Fase 5 — Calidad y distribución (`v0.8.0`)
 

@@ -356,6 +356,28 @@ function renderRecommendations(r) {
   for (const text of items) wrap.append(node("li", "", text));
 }
 
+function renderHistory(r) {
+  const panel = document.getElementById("historyPanel");
+  const points = r.history || [];
+  if (!points.length) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  const grid = document.getElementById("historyGrid");
+  grid.replaceChildren();
+  const recent = points.slice().reverse().slice(0, 12);
+  for (const p of recent) {
+    const cls = p.verdict === "pass" ? " good" : p.verdict === "fail" ? " bad" : "";
+    const box = node("div", "meta-item" + cls);
+    box.append(
+      node("div", "k", formatDate(p.at)),
+      node("div", "v", `${p.mode} · P95 ${ms(p.p95_ms)} · ${fmtNum.format(p.rate)} req/s · ${fmtPct(p.error_rate)} err`)
+    );
+    grid.append(box);
+  }
+}
+
 function renderSteps(r) {
   const panel = document.getElementById("stepsPanel");
   const steps = r.steps || [];
@@ -631,6 +653,7 @@ function render(r) {
   renderErrors(r);
   renderRecommendations(r);
   renderEnvironment(r);
+  renderHistory(r);
   renderSteps(r);
   renderTimings(r);
   renderComparison(r);

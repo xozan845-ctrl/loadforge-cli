@@ -345,6 +345,9 @@ loadforge history
 loadforge history --json
 ```
 
+Al usar `--history-dir`, el reporte web añade una sección **Tendencia
+histórica** con las últimas 20 ejecuciones (fecha, modo, P95, ritmo y errores).
+
 **POST con JSON:**
 
 ```bash
