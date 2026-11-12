@@ -86,3 +86,120 @@ func (p *linearPacer) Pace(elapsed time.Duration, hits uint64) (time.Duration, b
 func (p *linearPacer) Rate(elapsed time.Duration) float64 {
 	return p.rateAt(elapsed)
 }
+
+// stageSpan is one interval of a staged profile.
+type stageSpan struct {
+	startRate float64
+	endRate   float64
+	dur       time.Duration
+	startAt   time.Duration
+	startHits float64
+}
+
+// stagesPacer implements step, spike and soak profiles. Step and soak hold a
+// constant rate per stage; spike transitions linearly from the previous rate.
+type stagesPacer struct {
+	spans []stageSpan
+	total time.Duration
+}
+
+var _ vegeta.Pacer = (*stagesPacer)(nil)
+
+func newStagesPacer(mode string, stages []Stage) *stagesPacer {
+	p := &stagesPacer{}
+	at := time.Duration(0)
+	hits := 0.0
+	prev := 0.0
+	for i, s := range stages {
+		start := s.Rate
+		if mode == ModeSpike && i > 0 {
+			start = prev
+		}
+		p.spans = append(p.spans, stageSpan{
+			startRate: start,
+			endRate:   s.Rate,
+			dur:       s.Duration,
+			startAt:   at,
+			startHits: hits,
+		})
+		if mode == ModeSpike {
+			hits += (start + s.Rate) / 2 * s.Duration.Seconds()
+		} else {
+			hits += s.Rate * s.Duration.Seconds()
+		}
+		at += s.Duration
+		prev = s.Rate
+	}
+	p.total = at
+	return p
+}
+
+func (s stageSpan) hits() float64 {
+	if s.dur <= 0 {
+		return 0
+	}
+	return (s.startRate + s.endRate) / 2 * s.dur.Seconds()
+}
+
+func (p *stagesPacer) Rate(elapsed time.Duration) float64 {
+	if len(p.spans) == 0 {
+		return 0
+	}
+	if elapsed <= 0 {
+		return p.spans[0].startRate
+	}
+	if elapsed >= p.total {
+		return p.spans[len(p.spans)-1].endRate
+	}
+	for _, s := range p.spans {
+		if elapsed < s.startAt+s.dur {
+			if s.dur <= 0 {
+				return s.endRate
+			}
+			frac := float64(elapsed-s.startAt) / float64(s.dur)
+			return s.startRate + (s.endRate-s.startRate)*frac
+		}
+	}
+	return p.spans[len(p.spans)-1].endRate
+}
+
+func (p *stagesPacer) Pace(elapsed time.Duration, hits uint64) (time.Duration, bool) {
+	if len(p.spans) == 0 {
+		return 0, true
+	}
+	if p.total > 0 && elapsed >= p.total {
+		return 0, true
+	}
+	want := float64(hits + 1)
+
+	for _, s := range p.spans {
+		if want > s.startHits+s.hits()+1e-9 {
+			continue
+		}
+		local := want - s.startHits
+		if local < 0 {
+			local = 0
+		}
+		target := s.startAt
+		if s.dur <= 0 {
+			return 0, true
+		}
+		if math.Abs(s.endRate-s.startRate) < 1e-12 {
+			target += time.Duration(local / s.startRate * float64(time.Second))
+		} else {
+			a := (s.endRate - s.startRate) / (2 * s.dur.Seconds())
+			b := s.startRate
+			c := -local
+			target += time.Duration((-b + math.Sqrt(b*b-4*a*c)) / (2 * a) * float64(time.Second))
+		}
+		if target > p.total {
+			return 0, true
+		}
+		wait := target - elapsed
+		if wait < 0 {
+			wait = 0
+		}
+		return wait, false
+	}
+	return 0, true
+}

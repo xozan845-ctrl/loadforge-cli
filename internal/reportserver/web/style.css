@@ -245,6 +245,8 @@ body {
 .meta-item .k { font-size: 9px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 3px; }
 .meta-item .v { font-size: 11.5px; color: var(--text); overflow-wrap: anywhere; }
 .meta-item.wide { grid-column: 1 / -1; }
+.meta-item.bad .v { color: var(--red); }
+.meta-item.good .v { color: var(--green); }
 .meta-item.wide .v { font-family: var(--mono); font-size: 11px; color: var(--cyan); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .chip {

@@ -10,6 +10,39 @@ import (
 	"github.com/xozan845-ctrl/loadforge-cli/internal/model"
 )
 
+func TestExportCSVCreatesDirectory(t *testing.T) {
+	report := &model.Report{
+		Meta: model.Meta{
+			Tool: "loadforge", Version: "test", Target: "http://x", Method: "GET",
+			Mode: "constant", StartedAt: time.Now(), Duration: 1000,
+		},
+		Summary:  model.Summary{Requests: 10, Rate: 10, SuccessRate: 1},
+		Verdict:  model.Verdict{Status: model.VerdictPass, Title: "ok"},
+		Timeline: []model.TimelinePoint{{T: 0, Requests: 10, Rate: 10, TargetRate: 10}},
+	}
+
+	dir := filepath.Join(t.TempDir(), "out")
+	summary, timeline, err := ExportCSV(report, dir)
+	if err != nil {
+		t.Fatalf("ExportCSV: %v", err)
+	}
+	if summary != filepath.Join(dir, "summary.csv") || timeline != filepath.Join(dir, "timeline.csv") {
+		t.Fatalf("paths = %q, %q", summary, timeline)
+	}
+	data, err := os.ReadFile(summary)
+	if err != nil {
+		t.Fatalf("read summary: %v", err)
+	}
+	for _, want := range []string{"section,metric,value", "summary,requests,10", "timings,samples"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("summary missing %q", want)
+		}
+	}
+	if _, err := os.Stat(timeline); err != nil {
+		t.Fatalf("timeline: %v", err)
+	}
+}
+
 func TestExportHTMLIsSelfContained(t *testing.T) {
 	report := &model.Report{
 		SchemaVersion: model.SchemaVersion,

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/xozan845-ctrl/loadforge-cli/internal/model"
@@ -35,6 +36,16 @@ func buildVerdict(
 		v.Status = model.VerdictFail
 		v.Title = "Sin respuestas"
 		v.Message = "No se completó ninguna petición. Revisa la URL, la red y las credenciales."
+		return v
+	}
+
+	if violations := statusViolations(statuses, cfg.MaxStatus); len(violations) > 0 {
+		v.Status = model.VerdictFail
+		v.Title = "Umbral por código superado"
+		v.Message = fmt.Sprintf(
+			"Se superaron los límites configurados en --max-status: %s.",
+			strings.Join(violations, "; "),
+		)
 		return v
 	}
 
@@ -74,19 +85,19 @@ func buildVerdict(
 	latencyBreach := cfg.MaxP95 > 0 && lat.P95 > float64(cfg.MaxP95.Milliseconds())
 	errorBreach := summary.ErrorRate > cfg.MaxErrorRate
 
-	if cfg.Mode == ModeConstant {
+	if cfg.Mode == ModeConstant || cfg.Mode == ModeSoak {
 		v.Status = model.VerdictPass
 		v.Title = "Carga sostenida"
 		v.Message = fmt.Sprintf(
 			"El sistema sostuvo %.0f req/s con %.1f%% de éxito y P95 de %.0f ms.",
-			cfg.Rate, summary.SuccessRate*100, lat.P95,
+			cfg.AverageRate(), summary.SuccessRate*100, lat.P95,
 		)
 		if latencyBreach || errorBreach {
 			v.Status = model.VerdictFail
 			v.Title = "Carga no sostenida"
 			v.Message = fmt.Sprintf(
 				"A %.0f req/s se superaron los umbrales: %.1f%% de errores y P95 de %.0f ms.",
-				cfg.Rate, summary.ErrorRate*100, lat.P95,
+				cfg.AverageRate(), summary.ErrorRate*100, lat.P95,
 			)
 		}
 		return v
@@ -132,8 +143,8 @@ func buildVerdict(
 
 	v.Title = "Sin punto de quiebre"
 	v.Message = fmt.Sprintf(
-		"El sistema sostuvo toda la rampa (hasta %.0f req/s) con %.1f%% de éxito y P95 de %.0f ms.",
-		cfg.MaxRate, summary.SuccessRate*100, lat.P95,
+		"El sistema sostuvo todo el perfil (hasta %.0f req/s) con %.1f%% de éxito y P95 de %.0f ms.",
+		cfg.PeakRate(), summary.SuccessRate*100, lat.P95,
 	)
 	return v
 }
@@ -179,6 +190,26 @@ func countCodes(statuses []model.StatusCount, codes ...int) uint64 {
 	return total
 }
 
+func statusViolations(statuses []model.StatusCount, limits map[int]uint64) []string {
+	if len(limits) == 0 {
+		return nil
+	}
+	codes := make([]int, 0, len(limits))
+	for code := range limits {
+		codes = append(codes, code)
+	}
+	sort.Ints(codes)
+
+	var out []string
+	for _, code := range codes {
+		count := countCodes(statuses, code)
+		if count > limits[code] {
+			out = append(out, fmt.Sprintf("%d: %d respuestas (máx %d)", code, count, limits[code]))
+		}
+	}
+	return out
+}
+
 func count5xx(statuses []model.StatusCount) uint64 {
 	var total uint64
 	for _, s := range statuses {
@@ -215,6 +246,10 @@ func recommendations(
 	if missing := countCodes(statuses, 404, 405); missing > 0 {
 		add(fmt.Sprintf("Recibiste %d respuestas 404/405: revisa la ruta de la URL y el método HTTP; el endpoint puede no existir.", missing))
 	}
+	if violations := statusViolations(statuses, cfg.MaxStatus); len(violations) > 0 {
+		add("Umbrales --max-status superados: " + strings.Join(violations, "; ") +
+			". Ajusta el backend o relaja el límite si ese comportamiento es esperado.")
+	}
 	if countCodes(statuses, 429) > 0 {
 		add("El backend aplicó rate limiting (429). El límite práctico está cerca del punto donde aparecieron esos códigos.")
 	}
@@ -246,7 +281,7 @@ func recommendations(
 			summary.ErrorRate*100, cfg.MaxErrorRate*100))
 	}
 
-	if cfg.Mode == ModeRamp && len(timeline) > 0 {
+	if cfg.Mode != ModeConstant && cfg.Mode != ModeSoak && len(timeline) > 0 {
 		maxTarget := 0.0
 		maxAchieved := 0.0
 		for _, p := range timeline {
@@ -266,10 +301,14 @@ func recommendations(
 	if autoStopped && stopReason != "" {
 		add("La prueba se detuvo automáticamente al superar los umbrales. Usa --no-autostop para exprimir el sistema hasta el final.")
 	}
-	if len(timeline) > 0 && cfg.Mode == ModeRamp {
+	if len(timeline) > 0 && cfg.Mode != ModeConstant && cfg.Mode != ModeSoak {
 		_, _, found := findBreaking(timeline, cfg)
 		if !found && summary.Requests > 0 {
-			add(fmt.Sprintf("No se encontró el límite en el rango probado. Repite con --max-rate mayor que %.0f req/s.", cfg.MaxRate))
+			if cfg.Mode == ModeRamp {
+				add(fmt.Sprintf("No se encontró el límite en el rango probado. Repite con --max-rate mayor que %.0f req/s.", cfg.MaxRate))
+			} else {
+				add(fmt.Sprintf("No se encontró el límite en el perfil probado. Añade un --stage con más de %.0f req/s.", cfg.PeakRate()))
+			}
 		}
 	}
 	return out

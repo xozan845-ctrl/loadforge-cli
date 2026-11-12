@@ -23,6 +23,40 @@ func TestConstantPacer(t *testing.T) {
 	}
 }
 
+func TestStepPacer(t *testing.T) {
+	p := newStagesPacer(ModeStep, []Stage{
+		{Rate: 10, Duration: 2 * time.Second},
+		{Rate: 50, Duration: 2 * time.Second},
+	})
+	if got := p.Rate(500 * time.Millisecond); got != 10 {
+		t.Fatalf("Rate(0.5s) = %v, want 10", got)
+	}
+	if got := p.Rate(3 * time.Second); got != 50 {
+		t.Fatalf("Rate(3s) = %v, want 50", got)
+	}
+	if _, stop := p.Pace(4*time.Second, 100); !stop {
+		t.Fatal("expected stop after the last stage")
+	}
+	// The first hit at 10 req/s is due 100ms after start.
+	wait, stop := p.Pace(0, 0)
+	if stop || wait != 100*time.Millisecond {
+		t.Fatalf("Pace(0,0) = %v,%v; want 100ms,false", wait, stop)
+	}
+}
+
+func TestSpikePacerTransitions(t *testing.T) {
+	p := newStagesPacer(ModeSpike, []Stage{
+		{Rate: 10, Duration: time.Second},
+		{Rate: 110, Duration: time.Second},
+	})
+	if got := p.Rate(1500 * time.Millisecond); got != 60 {
+		t.Fatalf("Rate(1.5s) = %v, want 60", got)
+	}
+	if got := p.Rate(2 * time.Second); got != 110 {
+		t.Fatalf("Rate(2s) = %v, want 110", got)
+	}
+}
+
 func TestRampPacer(t *testing.T) {
 	p := &linearPacer{start: 1, end: 101, dur: 10 * time.Second}
 	if got := p.Rate(0); got != 1 {

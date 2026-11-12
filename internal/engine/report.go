@@ -70,6 +70,15 @@ type aggregator struct {
 	timeline []model.TimelinePoint
 	cur      *bucket
 	curIdx   int
+
+	tDNS      *hdr.Histogram
+	tConnect  *hdr.Histogram
+	tTLS      *hdr.Histogram
+	tTTFB     *hdr.Histogram
+	tDownload *hdr.Histogram
+
+	timingSamples uint64
+	reusedConns   uint64
 }
 
 func newAggregator(cfg Config, pacer vegeta.Pacer, start time.Time) *aggregator {
@@ -79,14 +88,19 @@ func newAggregator(cfg Config, pacer vegeta.Pacer, start time.Time) *aggregator 
 	}
 	h := hdr.New(1, maxUs, 3)
 	return &aggregator{
-		cfg:   cfg,
-		pacer: pacer,
-		start: start,
-		maxUs: maxUs,
-		hist:  h,
-		dist:  make([]uint64, len(distBounds)+1),
-		codes: map[int]uint64{},
-		errs:  map[string]uint64{},
+		cfg:       cfg,
+		pacer:     pacer,
+		start:     start,
+		maxUs:     maxUs,
+		hist:      h,
+		dist:      make([]uint64, len(distBounds)+1),
+		codes:     map[int]uint64{},
+		errs:      map[string]uint64{},
+		tDNS:      hdr.New(1, maxUs, 3),
+		tConnect:  hdr.New(1, maxUs, 3),
+		tTLS:      hdr.New(1, maxUs, 3),
+		tTTFB:     hdr.New(1, maxUs, 3),
+		tDownload: hdr.New(1, maxUs, 3),
 	}
 }
 
@@ -116,6 +130,11 @@ func (a *aggregator) add(res *vegeta.Result, elapsed time.Duration) {
 		a.errs[truncate(res.Error, 300)]++
 	} else if !ok && res.Code > 0 {
 		a.errs[truncate(fmt.Sprintf("%d %s", res.Code, httpStatusText(int(res.Code))), 300)]++
+	}
+
+	if raw := res.Headers.Get(timingHeader); raw != "" {
+		res.Headers.Del(timingHeader)
+		a.recordTiming(raw, res.Latency)
 	}
 
 	idx := int(elapsed / time.Second)
@@ -268,6 +287,31 @@ func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, en
 		MaxErrorRate: a.cfg.MaxErrorRate,
 		MaxP95Ms:     float64(a.cfg.MaxP95.Milliseconds()),
 	}
+	if len(a.cfg.MaxStatus) > 0 {
+		codes := make([]int, 0, len(a.cfg.MaxStatus))
+		for code := range a.cfg.MaxStatus {
+			codes = append(codes, code)
+		}
+		sort.Ints(codes)
+		for _, code := range codes {
+			thresholds.MaxStatus = append(thresholds.MaxStatus, model.StatusLimit{
+				Code: code,
+				Max:  a.cfg.MaxStatus[code],
+			})
+		}
+	}
+
+	timings := model.Timings{
+		DNS:      phaseStats(a.tDNS),
+		Connect:  phaseStats(a.tConnect),
+		TLS:      phaseStats(a.tTLS),
+		TTFB:     phaseStats(a.tTTFB),
+		Download: phaseStats(a.tDownload),
+		Samples:  a.timingSamples,
+	}
+	if a.timingSamples > 0 {
+		timings.ReusedPercent = ratio(a.reusedConns, a.timingSamples) * 100
+	}
 
 	verdict := buildVerdict(a.cfg, summary, lat, a.timeline, statuses, errs, interrupted, autoStopped, stopReason)
 
@@ -276,6 +320,14 @@ func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, en
 		headers = append(headers, k)
 	}
 	sort.Strings(headers)
+
+	stages := make([]model.StageInfo, 0, len(a.cfg.Stages))
+	for _, s := range a.cfg.Stages {
+		stages = append(stages, model.StageInfo{
+			Rate:       s.Rate,
+			DurationMs: s.Duration.Milliseconds(),
+		})
+	}
 
 	return &model.Report{
 		SchemaVersion: model.SchemaVersion,
@@ -300,6 +352,7 @@ func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, en
 			Interrupted:     interrupted,
 			AutoStopped:     autoStopped,
 			StopReason:      stopReason,
+			Stages:          stages,
 		},
 		Summary:      summary,
 		Latency:      lat,
@@ -307,6 +360,7 @@ func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, en
 		StatusCodes:  statuses,
 		Errors:       errs,
 		Timeline:     a.timeline,
+		Timings:      timings,
 		Thresholds:   thresholds,
 		Verdict:      verdict,
 		Environment: model.Environment{

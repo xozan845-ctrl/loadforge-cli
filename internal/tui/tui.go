@@ -85,7 +85,7 @@ func Run(cfg engine.Config) (*model.Report, error) {
 
 	live := &LiveState{}
 	startRate := cfg.Rate
-	if cfg.Mode == engine.ModeRamp {
+	if cfg.Mode != engine.ModeConstant {
 		startRate = cfg.StartRate
 	}
 	live.Set(model.Progress{Total: cfg.Duration, TargetRate: startRate})
@@ -279,6 +279,13 @@ func health(p model.Progress, cfg engine.Config) (string, lipgloss.Style) {
 }
 
 func modeLabel(cfg engine.Config) string {
+	if len(cfg.Stages) > 0 {
+		parts := make([]string, 0, len(cfg.Stages))
+		for _, s := range cfg.Stages {
+			parts = append(parts, fmt.Sprintf("%.0f", s.Rate))
+		}
+		return fmt.Sprintf("%s %s req/s · %s", cfg.Mode, strings.Join(parts, "→"), cfg.Duration)
+	}
 	if cfg.Mode == engine.ModeRamp {
 		return fmt.Sprintf("ramp %.0f → %.0f req/s · %s", cfg.StartRate, cfg.MaxRate, cfg.Duration)
 	}

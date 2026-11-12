@@ -190,10 +190,7 @@ func detectClientBottleneck(env *model.Environment, cfg Config, rate float64) {
 	if env.ProcessCPUSharePercent < 70 || rate <= 0 {
 		return
 	}
-	target := cfg.Rate
-	if cfg.Mode == ModeRamp {
-		target = (cfg.StartRate + cfg.MaxRate) / 2
-	}
+	target := cfg.AverageRate()
 	if target <= 0 || rate >= target*0.9 {
 		return
 	}

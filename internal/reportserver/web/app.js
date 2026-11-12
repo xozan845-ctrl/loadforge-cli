@@ -356,6 +356,88 @@ function renderRecommendations(r) {
   for (const text of items) wrap.append(node("li", "", text));
 }
 
+function renderTimings(r) {
+  const grid = document.getElementById("timingsGrid");
+  grid.replaceChildren();
+  const t = r.timings || {};
+  if (!t.samples) {
+    grid.append(node("div", "empty", "Sin muestras de red en esta ejecución."));
+    return;
+  }
+  const phase = (p) => {
+    if (!p || (!p.p50 && !p.p95 && !p.p99)) return "no disponible";
+    return `P50 ${ms(p.p50)} · P95 ${ms(p.p95)} · P99 ${ms(p.p99)}`;
+  };
+  const items = [
+    { k: "DNS", v: phase(t.dns) },
+    { k: "Conexión TCP", v: phase(t.connect) },
+    { k: "TLS", v: phase(t.tls) },
+    { k: "TTFB", v: phase(t.ttfb) },
+    { k: "Descarga", v: phase(t.download) },
+    { k: "Conexiones reutilizadas", v: `${fmtNum.format(t.reused_percent || 0)}%` },
+  ];
+  for (const item of items) {
+    const box = node("div", "meta-item");
+    box.append(node("div", "k", item.k), node("div", "v", item.v));
+    grid.append(box);
+  }
+}
+
+function comparisonValue(m, v) {
+  if (m.unit === "ms") return ms(v);
+  if (m.unit === "%") return `${(v * 100).toFixed(2)}%`;
+  return `${fmtNum.format(v)} ${m.unit}`;
+}
+
+function comparisonDelta(m) {
+  if (m.unit === "%") {
+    const points = m.delta_points || 0;
+    return `${points >= 0 ? "+" : ""}${points.toFixed(2)} pp`;
+  }
+  const pct = m.delta_percent || 0;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+}
+
+function renderComparison(r) {
+  const panel = document.getElementById("comparisonPanel");
+  const cmp = r.comparison;
+  if (!cmp || !cmp.metrics || !cmp.metrics.length) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  const grid = document.getElementById("comparisonGrid");
+  grid.replaceChildren();
+  for (const m of cmp.metrics) {
+    const cls = m.regressed ? " bad" : m.improved ? " good" : "";
+    const box = node("div", "meta-item" + cls);
+    box.append(
+      node("div", "k", m.label),
+      node("div", "v", `${comparisonValue(m, m.baseline)} → ${comparisonValue(m, m.current)} (${comparisonDelta(m)})`)
+    );
+    grid.append(box);
+  }
+
+  const note = document.getElementById("comparisonNote");
+  note.classList.remove("warn", "ok");
+  if (cmp.regressions && cmp.regressions.length) {
+    note.classList.add("warn");
+    note.textContent = `${cmp.regressions.length} regresiones: ${cmp.regressions.join(", ")}.`;
+    note.hidden = false;
+  } else if (cmp.improvements && cmp.improvements.length) {
+    note.classList.add("ok");
+    note.textContent = `Mejoras: ${cmp.improvements.join(", ")}.`;
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+
+  const when = document.getElementById("comparisonWhen");
+  when.textContent = `baseline ${cmp.baseline_version || "?"} · ${formatDate(cmp.baseline_at)}` +
+    (cmp.target_changed ? " · objetivo distinto" : "");
+}
+
 function renderEnvironment(r) {
   const e = r.environment || {};
 
@@ -441,13 +523,25 @@ function renderEnvironment(r) {
 }
 
 function renderMeta(r) {
-  const m = r.meta, e = r.environment;
+  const m = r.meta, e = r.environment, t = r.thresholds || {};
   const grid = document.getElementById("metaGrid");
   grid.replaceChildren();
 
-  const mode = m.mode === "ramp"
-    ? `ramp · ${fmtNum.format(m.rate_start)} → ${fmtNum.format(m.rate_max)} req/s`
-    : `constant · ${fmtNum.format(m.rate_max || m.rate_start)} req/s`;
+  let mode;
+  if (m.stages && m.stages.length) {
+    mode = `${m.mode} · ` + m.stages
+      .map((s) => `${fmtNum.format(s.rate)} req/s × ${(s.duration_ms / 1000).toFixed(0)}s`)
+      .join(" → ");
+  } else if (m.mode === "ramp") {
+    mode = `ramp · ${fmtNum.format(m.rate_start)} → ${fmtNum.format(m.rate_max)} req/s`;
+  } else {
+    mode = `constant · ${fmtNum.format(m.rate_max || m.rate_start)} req/s`;
+  }
+
+  let thresholdText = `${t.max_p95_ms > 0 ? `P95 ≤ ${ms(t.max_p95_ms)}` : "P95 sin umbral"} · errores ≤ ${fmtPct(t.max_error_rate || 0)}`;
+  for (const limit of t.max_status || []) {
+    thresholdText += ` · ${limit.code} ≤ ${limit.max}`;
+  }
 
   const items = [
     { k: "Objetivo", v: m.target, wide: true },
@@ -460,6 +554,7 @@ function renderMeta(r) {
     { k: "Concurrencia", v: `${m.workers} workers iniciales · ${m.max_workers} máximo` },
     { k: "Timeout", v: m.timeout_ms > 0 ? ms(m.timeout_ms) : "sin timeout" },
     { k: "TLS", v: m.insecure ? "verificación desactivada (--insecure)" : "verificado" },
+    { k: "Umbrales", v: thresholdText, wide: true },
     { k: "Inicio", v: formatDate(m.started_at) },
     { k: "Entorno", v: `${e.os}/${e.arch} · ${e.cpus} CPUs · ${e.go_version}` },
     { k: "Versión", v: `${m.tool} ${m.version}` },
@@ -498,6 +593,8 @@ function render(r) {
   renderErrors(r);
   renderRecommendations(r);
   renderEnvironment(r);
+  renderTimings(r);
+  renderComparison(r);
   renderMeta(r);
 }
 

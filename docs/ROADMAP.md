@@ -17,11 +17,11 @@ cruzados y documentación actualizada antes de pasar a la siguiente.
 
 ## Fase 2 — Exploración y comparación (`v0.4.0`)
 
-- [ ] `loadforge compare a.json b.json` y `--baseline`.
-- [ ] Etapas `step`, `spike`, `soak` y perfiles configurables.
-- [ ] Desglose de tiempos HTTP: DNS, TCP, TLS, TTFB y descarga.
-- [ ] Umbrales por código HTTP (por ejemplo, 404 = 0) y por endpoint.
-- [ ] Exportar CSV completo además del timeline.
+- [x] `loadforge compare a.json b.json` y `--baseline`.
+- [x] Etapas `step`, `spike`, `soak` y perfiles configurables.
+- [x] Desglose de tiempos HTTP: DNS, TCP, TLS, TTFB y descarga.
+- [x] Umbrales por código HTTP (por ejemplo, 404 = 0).
+- [x] Exportar CSV completo además del timeline.
 
 ## Fase 3 — Realismo (`v0.5.0`)
 

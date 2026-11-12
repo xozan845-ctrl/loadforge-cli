@@ -56,6 +56,13 @@ Al terminar:
   todo embebido, listo para compartir o guardar como artefacto de CI.
 - **Modo CI**: `--fail-on-threshold` devuelve código de salida 1 cuando el
   veredicto no es `pass`, y `--dry-run` valida el objetivo sin generar carga.
+- **Perfiles por etapas**: `step`, `spike` y `soak` con `--stage RATE:DURACION`,
+  además de la rampa lineal y la carga constante.
+- **Desglose de red**: DNS, conexión TCP, TLS, TTFB y descarga por separado.
+- **Comparación con baseline**: `loadforge compare` o `--baseline` detectan
+  regresiones de latencia, errores y throughput.
+- **Umbrales por código HTTP**: por ejemplo `--max-status 404=0`.
+- **CSV completo**: resumen por secciones además del timeline por segundo.
 - **Redacción de secretos**: la API key nunca entra al reporte; los valores de
   query sensibles se reemplazan por `***`.
 
@@ -189,6 +196,48 @@ loadforge run \
   --mode ramp --start-rate 10 --max-rate 500 --duration 2m \
   --max-error-rate 0.02 --max-p95 800ms
 ```
+
+**Perfil por etapas (step / spike / soak):**
+
+```bash
+# Step: 10, 50 y 100 req/s, cada uno durante 30s
+loadforge run --url https://api.ejemplo.com/health \
+  --mode step --stage 10:30s --stage 50:30s --stage 100:30s
+
+# Spike: subida y bajada brusca alrededor de 10 req/s
+loadforge run --url https://api.ejemplo.com/health \
+  --mode spike --stage 10:30s --stage 300:10s --stage 10:30s
+
+# Soak: una hora a 20 req/s
+loadforge run --url https://api.ejemplo.com/health \
+  --mode soak --rate 20 --duration 1h
+```
+
+En `step` y `soak` cada etapa mantiene su tasa; en `spike` la tasa transiciona
+linealmente desde la etapa anterior.
+
+**Comparar con una ejecución anterior:**
+
+```bash
+loadforge compare reportes/antes.json reportes/despues.json
+
+# O directamente al ejecutar
+loadforge run --url https://api.ejemplo.com/health \
+  --baseline reportes/antes.json
+
+# Falla el pipeline si hay regresiones
+loadforge compare antes.json despues.json --fail-on-regression
+```
+
+**Umbrales por código HTTP y CSV completo:**
+
+```bash
+loadforge run --url https://api.ejemplo.com/health \
+  --max-status 404=0 --max-status 500=0 \
+  --export-csv reportes/
+```
+
+Esto genera `reportes/summary.csv` y `reportes/timeline.csv`.
 
 **POST con JSON:**
 
@@ -327,10 +376,11 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `-H, --header` | — | Header extra `Clave: Valor`, repetible. |
 | `--body` / `--body-file` | — | Cuerpo de la petición. |
 | `--content-type` | `application/json` si hay body | Content-Type explícito. |
-| `--mode` | `ramp` | `ramp` o `constant`. |
-| `-r, --rate` | `20` | req/s en modo `constant`. |
+| `--mode` | `ramp` | `ramp`, `constant`, `step`, `spike` o `soak`. |
+| `-r, --rate` | `20` | req/s en modo `constant` o `soak`. |
 | `--start-rate` | `1` | req/s inicial de la rampa. |
 | `--max-rate` | `50` | req/s máximo de la rampa. |
+| `--stage` | — | Etapa `RATE:DURACION`, repetible para `step`/`spike`/`soak`. |
 | `-d, --duration` | `30s` | Duración (`30s`, `2m`, `1h`). |
 | `-c, --workers` | `10` | Workers iniciales. |
 | `--max-workers` | auto | Tope de concurrencia (auto = 2× `max-rate`, mín. 100). |
@@ -339,6 +389,7 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--max-body` | `4096` | Bytes de respuesta leídos por petición. |
 | `--max-error-rate` | `0.01` | SLO de errores (0.01 = 1%). |
 | `--max-p95` | `500ms` | SLO de latencia P95 (`0` lo desactiva). |
+| `--max-status` | — | Máximo de respuestas por código, `CODE=COUNT` (repetible). |
 | `--no-autostop` | `false` | No cortar la rampa al degradarse. |
 | `--no-preflight` | `false` | No comprobar la URL antes de generar carga. |
 | `--host` | `127.0.0.1` | Interfaz del reporte. |
@@ -346,7 +397,9 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--no-open` | `false` | No abrir el navegador. |
 | `--no-serve` | `false` | No levantar el servidor. |
 | `--save` | — | Guardar el JSON en una ruta o directorio. |
+| `--baseline` | — | Comparar la ejecución contra un reporte guardado. |
 | `--export-html` | — | Guardar un reporte HTML autocontenido. |
+| `--export-csv` | — | Guardar resumen y timeline en CSV. |
 | `--json` | `false` | Imprimir JSON y salir (sin TUI ni servidor). |
 | `--quiet` | `false` | Sin progreso en vivo. |
 | `--dry-run` | `false` | Validar URL, auth y TLS sin generar carga. |
@@ -390,6 +443,25 @@ El reporte web añade una gráfica de **presión del cliente**: CPU del generado
 frente a la carga real. Si la CPU sube mientras los req/s reales se estancan,
 el límite está en el equipo que genera la carga. El CSV incluye esas columnas
 (`client_cpu_percent`, `client_rss_bytes`, etc.).
+
+### Desglose de tiempos
+
+La latencia total se divide en **DNS**, **conexión TCP**, **TLS**, **TTFB**
+(tiempo hasta el primer byte) y **descarga**. Las conexiones reutilizadas no
+pagan DNS/TCP/TLS, por eso el porcentaje de reutilización ayuda a interpretar
+esos percentiles. Si el TTFB domina, el cuello está en el backend; si domina
+la descarga, en el tamaño de la respuesta o la red.
+
+### Comparación con baseline
+
+`loadforge compare base.json actual.json` (o `--baseline` al ejecutar) compara
+P95, P99, latencia media, errores, éxito, throughput y ritmo. Marca regresión
+cuando la latencia sube más de **20%**, el throughput baja más de **10%** o la
+tasa de error sube más de **1 punto porcentual**. Usa `--fail-on-regression`
+para convertirlo en quality gate.
+
+Compara siempre ejecuciones con el **mismo objetivo y perfil**: si cambian la
+URL, el modo o las etapas, las cifras no son directamente comparables.
 
 ### Entorno y rendimiento del cliente
 

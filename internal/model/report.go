@@ -17,33 +17,86 @@ type Report struct {
 	StatusCodes   []StatusCount   `json:"status_codes"`
 	Errors        []ErrorCount    `json:"errors"`
 	Timeline      []TimelinePoint `json:"timeline"`
+	Timings       Timings         `json:"timings"`
 	Thresholds    Thresholds      `json:"thresholds"`
 	Verdict       Verdict         `json:"verdict"`
 	Environment   Environment     `json:"environment"`
+	Comparison    *Comparison     `json:"comparison,omitempty"`
+}
+
+// Comparison describes how a run changed relative to a saved baseline.
+type Comparison struct {
+	BaselineVersion string             `json:"baseline_version"`
+	BaselineAt      time.Time          `json:"baseline_at"`
+	TargetChanged   bool               `json:"target_changed"`
+	Metrics         []ComparisonMetric `json:"metrics"`
+	Regressions     []string           `json:"regressions,omitempty"`
+	Improvements    []string           `json:"improvements,omitempty"`
+}
+
+// ComparisonMetric is one row of a baseline comparison.
+type ComparisonMetric struct {
+	Key          string  `json:"key"`
+	Label        string  `json:"label"`
+	Unit         string  `json:"unit"`
+	Baseline     float64 `json:"baseline"`
+	Current      float64 `json:"current"`
+	DeltaPercent float64 `json:"delta_percent,omitempty"`
+	DeltaPoints  float64 `json:"delta_points,omitempty"`
+	Better       string  `json:"better"`
+	Regressed    bool    `json:"regressed,omitempty"`
+	Improved     bool    `json:"improved,omitempty"`
+}
+
+// PhaseStats are percentiles in milliseconds for one HTTP phase.
+type PhaseStats struct {
+	P50 float64 `json:"p50"`
+	P95 float64 `json:"p95"`
+	P99 float64 `json:"p99"`
+}
+
+// Timings breaks the request latency into its network phases. Phases that do
+// not apply to a request (DNS or TLS on reused connections) are recorded only
+// when they actually happen, so their sample count may be lower.
+type Timings struct {
+	DNS           PhaseStats `json:"dns"`
+	Connect       PhaseStats `json:"connect"`
+	TLS           PhaseStats `json:"tls"`
+	TTFB          PhaseStats `json:"ttfb"`
+	Download      PhaseStats `json:"download"`
+	ReusedPercent float64    `json:"reused_percent"`
+	Samples       uint64     `json:"samples"`
 }
 
 // Meta describes what was tested and how.
 type Meta struct {
-	Tool            string    `json:"tool"`
-	Version         string    `json:"version"`
-	Target          string    `json:"target"`
-	Method          string    `json:"method"`
-	Mode            string    `json:"mode"`
-	StartedAt       time.Time `json:"started_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	PlannedDuration int64     `json:"planned_duration_ms"`
-	Duration        int64     `json:"duration_ms"`
-	RateStart       float64   `json:"rate_start"`
-	RateMax         float64   `json:"rate_max"`
-	Workers         int       `json:"workers"`
-	MaxWorkers      int       `json:"max_workers"`
-	HeaderNames     []string  `json:"header_names"`
-	BodyBytes       int       `json:"body_bytes"`
-	TimeoutMs       int64     `json:"timeout_ms"`
-	Insecure        bool      `json:"insecure"`
-	Interrupted     bool      `json:"interrupted"`
-	AutoStopped     bool      `json:"auto_stopped"`
-	StopReason      string    `json:"stop_reason,omitempty"`
+	Tool            string      `json:"tool"`
+	Version         string      `json:"version"`
+	Target          string      `json:"target"`
+	Method          string      `json:"method"`
+	Mode            string      `json:"mode"`
+	StartedAt       time.Time   `json:"started_at"`
+	FinishedAt      time.Time   `json:"finished_at"`
+	PlannedDuration int64       `json:"planned_duration_ms"`
+	Duration        int64       `json:"duration_ms"`
+	RateStart       float64     `json:"rate_start"`
+	RateMax         float64     `json:"rate_max"`
+	Workers         int         `json:"workers"`
+	MaxWorkers      int         `json:"max_workers"`
+	HeaderNames     []string    `json:"header_names"`
+	BodyBytes       int         `json:"body_bytes"`
+	TimeoutMs       int64       `json:"timeout_ms"`
+	Insecure        bool        `json:"insecure"`
+	Interrupted     bool        `json:"interrupted"`
+	AutoStopped     bool        `json:"auto_stopped"`
+	StopReason      string      `json:"stop_reason,omitempty"`
+	Stages          []StageInfo `json:"stages,omitempty"`
+}
+
+// StageInfo describes one step of a staged profile.
+type StageInfo struct {
+	Rate       float64 `json:"rate"`
+	DurationMs int64   `json:"duration_ms"`
 }
 
 // Summary holds the headline numbers.
@@ -109,8 +162,15 @@ type TimelinePoint struct {
 
 // Thresholds are the SLOs used to judge the run.
 type Thresholds struct {
-	MaxErrorRate float64 `json:"max_error_rate"`
-	MaxP95Ms     float64 `json:"max_p95_ms"`
+	MaxErrorRate float64       `json:"max_error_rate"`
+	MaxP95Ms     float64       `json:"max_p95_ms"`
+	MaxStatus    []StatusLimit `json:"max_status,omitempty"`
+}
+
+// StatusLimit caps how many responses with a given status code are tolerated.
+type StatusLimit struct {
+	Code int    `json:"code"`
+	Max  uint64 `json:"max"`
 }
 
 // Verdict status values.

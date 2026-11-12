@@ -1,13 +1,10 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/xozan845-ctrl/loadforge-cli/internal/model"
 	"github.com/xozan845-ctrl/loadforge-cli/internal/reportserver"
 )
 
@@ -24,19 +21,12 @@ func newServeCmd() *cobra.Command {
 sin repetir la prueba de carga.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := os.ReadFile(args[0])
+			report, err := loadReport(args[0])
 			if err != nil {
-				return fmt.Errorf("no se pudo leer el reporte: %w", err)
-			}
-			var report model.Report
-			if err := json.Unmarshal(data, &report); err != nil {
-				return fmt.Errorf("JSON inválido: %w", err)
-			}
-			if report.Meta.Tool != "loadforge" {
-				return fmt.Errorf("el archivo no parece un reporte de LoadForge")
+				return err
 			}
 
-			srv, err := reportserver.Serve(&report, host, port, !noOpen)
+			srv, err := reportserver.Serve(report, host, port, !noOpen)
 			if err != nil {
 				return err
 			}

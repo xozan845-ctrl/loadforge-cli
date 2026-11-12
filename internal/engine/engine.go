@@ -21,7 +21,17 @@ import (
 const (
 	ModeConstant = "constant"
 	ModeRamp     = "ramp"
+	ModeStep     = "step"
+	ModeSpike    = "spike"
+	ModeSoak     = "soak"
 )
+
+// Stage is one step of a staged profile. For step and soak the rate is held
+// constant; for spike the rate transitions linearly from the previous stage.
+type Stage struct {
+	Rate     float64
+	Duration time.Duration
+}
 
 // Config describes a load test.
 type Config struct {
@@ -33,6 +43,7 @@ type Config struct {
 	Rate      float64
 	StartRate float64
 	MaxRate   float64
+	Stages    []Stage
 	Duration  time.Duration
 
 	Workers    int
@@ -43,6 +54,7 @@ type Config struct {
 
 	MaxErrorRate float64
 	MaxP95       time.Duration
+	MaxStatus    map[int]uint64
 	AutoStop     bool
 	Preflight    bool
 
@@ -64,19 +76,44 @@ func (c *Config) Validate() error {
 	if c.Duration <= 0 {
 		return fmt.Errorf("la duración debe ser mayor que cero")
 	}
-	if c.Mode != ModeConstant && c.Mode != ModeRamp {
-		return fmt.Errorf("modo inválido %q: usa constant o ramp", c.Mode)
-	}
-	if c.Mode == ModeConstant && c.Rate <= 0 {
-		return fmt.Errorf("el rate debe ser mayor que cero")
-	}
-	if c.Mode == ModeRamp {
+	switch c.Mode {
+	case ModeConstant:
+		if c.Rate <= 0 {
+			return fmt.Errorf("el rate debe ser mayor que cero")
+		}
+	case ModeRamp:
 		if c.StartRate <= 0 {
 			return fmt.Errorf("start-rate debe ser mayor que cero")
 		}
 		if c.MaxRate < c.StartRate {
 			return fmt.Errorf("max-rate debe ser mayor o igual que start-rate")
 		}
+	case ModeStep, ModeSpike, ModeSoak:
+		if len(c.Stages) == 0 {
+			if c.Mode == ModeSoak && c.Rate > 0 && c.Duration > 0 {
+				c.Stages = []Stage{{Rate: c.Rate, Duration: c.Duration}}
+			} else {
+				return fmt.Errorf("el modo %s requiere al menos un --stage RATE:DURATION", c.Mode)
+			}
+		}
+		total := time.Duration(0)
+		for i, s := range c.Stages {
+			if s.Rate <= 0 {
+				return fmt.Errorf("stage %d: el rate debe ser mayor que cero", i+1)
+			}
+			if s.Duration <= 0 {
+				return fmt.Errorf("stage %d: la duración debe ser mayor que cero", i+1)
+			}
+			total += s.Duration
+		}
+		if total <= 0 {
+			return fmt.Errorf("la duración total de los stages debe ser mayor que cero")
+		}
+		c.Duration = total
+		c.StartRate = c.Stages[0].Rate
+		c.MaxRate = c.PeakRate()
+	default:
+		return fmt.Errorf("modo inválido %q: usa constant, ramp, step, spike o soak", c.Mode)
 	}
 	if c.Workers < 1 {
 		return fmt.Errorf("workers debe ser al menos 1")
@@ -93,6 +130,11 @@ func (c *Config) Validate() error {
 	if c.MaxP95 < 0 {
 		return fmt.Errorf("max-p95 no puede ser negativo")
 	}
+	for code := range c.MaxStatus {
+		if code < 100 || code > 599 {
+			return fmt.Errorf("código HTTP inválido en --max-status: %d", code)
+		}
+	}
 	if c.Method == "" {
 		c.Method = http.MethodGet
 	}
@@ -101,6 +143,56 @@ func (c *Config) Validate() error {
 		c.MaxBody = 4096
 	}
 	return nil
+}
+
+// PeakRate returns the highest target rate of the profile.
+func (c Config) PeakRate() float64 {
+	switch c.Mode {
+	case ModeConstant:
+		return c.Rate
+	case ModeRamp:
+		return c.MaxRate
+	default:
+		peak := 0.0
+		for _, s := range c.Stages {
+			if s.Rate > peak {
+				peak = s.Rate
+			}
+		}
+		return peak
+	}
+}
+
+// AverageRate returns the mean target rate over the whole profile. It is used
+// to decide whether a run reached its expected load.
+func (c Config) AverageRate() float64 {
+	switch c.Mode {
+	case ModeConstant:
+		return c.Rate
+	case ModeRamp:
+		return (c.StartRate + c.MaxRate) / 2
+	}
+
+	totalHits := 0.0
+	totalDur := 0.0
+	prev := 0.0
+	for i, s := range c.Stages {
+		start := s.Rate
+		if c.Mode == ModeSpike && i > 0 {
+			start = prev
+		}
+		if c.Mode == ModeSpike {
+			totalHits += (start + s.Rate) / 2 * s.Duration.Seconds()
+		} else {
+			totalHits += s.Rate * s.Duration.Seconds()
+		}
+		totalDur += s.Duration.Seconds()
+		prev = s.Rate
+	}
+	if totalDur <= 0 {
+		return 0
+	}
+	return totalHits / totalDur
 }
 
 // Run executes the test. ctx cancellation stops scheduling new requests, waits
@@ -131,14 +223,21 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 		return nil, fmt.Errorf("no se pudo construir la petición: %w", err)
 	}
 
-	pacer := &linearPacer{
-		start: cfg.Rate,
-		end:   cfg.Rate,
-		dur:   cfg.Duration,
-	}
-	if cfg.Mode == ModeRamp {
-		pacer.start = cfg.StartRate
-		pacer.end = cfg.MaxRate
+	var pacer vegeta.Pacer
+	switch cfg.Mode {
+	case ModeStep, ModeSpike, ModeSoak:
+		pacer = newStagesPacer(cfg.Mode, cfg.Stages)
+	default:
+		linear := &linearPacer{
+			start: cfg.Rate,
+			end:   cfg.Rate,
+			dur:   cfg.Duration,
+		}
+		if cfg.Mode == ModeRamp {
+			linear.start = cfg.StartRate
+			linear.end = cfg.MaxRate
+		}
+		pacer = linear
 	}
 
 	attacker := vegeta.NewAttacker(
@@ -237,7 +336,7 @@ func newHTTPClient(cfg Config) *http.Client {
 		},
 	}
 	return &http.Client{
-		Transport: transport,
+		Transport: &timingTransport{base: transport},
 		Timeout:   cfg.Timeout,
 	}
 }

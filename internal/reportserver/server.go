@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os/exec"
@@ -134,31 +135,35 @@ func timelineHandler(report *model.Report) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="loadforge-timeline.csv"`)
-		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{
-			"second", "requests", "errors", "error_rate",
-			"rate_rps", "target_rate_rps", "p50_ms", "p95_ms", "p99_ms",
-			"client_cpu_percent", "client_cpu_share_percent", "client_rss_bytes", "client_goroutines",
-		})
-		for _, p := range report.Timeline {
-			_ = cw.Write([]string{
-				strconv.FormatFloat(p.T, 'f', 0, 64),
-				strconv.FormatUint(p.Requests, 10),
-				strconv.FormatUint(p.Errors, 10),
-				trimFloat(p.ErrorRate, 4),
-				trimFloat(p.Rate, 2),
-				trimFloat(p.TargetRate, 2),
-				trimFloat(p.P50, 2),
-				trimFloat(p.P95, 2),
-				trimFloat(p.P99, 2),
-				trimFloat(p.ClientCPUPercent, 2),
-				trimFloat(p.ClientCPUSharePercent, 2),
-				strconv.FormatUint(p.ClientRSSBytes, 10),
-				strconv.Itoa(p.ClientGoroutines),
-			})
-		}
-		cw.Flush()
+		writeTimelineCSV(w, report)
 	}
+}
+
+func writeTimelineCSV(w io.Writer, report *model.Report) {
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{
+		"second", "requests", "errors", "error_rate",
+		"rate_rps", "target_rate_rps", "p50_ms", "p95_ms", "p99_ms",
+		"client_cpu_percent", "client_cpu_share_percent", "client_rss_bytes", "client_goroutines",
+	})
+	for _, p := range report.Timeline {
+		_ = cw.Write([]string{
+			strconv.FormatFloat(p.T, 'f', 0, 64),
+			strconv.FormatUint(p.Requests, 10),
+			strconv.FormatUint(p.Errors, 10),
+			trimFloat(p.ErrorRate, 4),
+			trimFloat(p.Rate, 2),
+			trimFloat(p.TargetRate, 2),
+			trimFloat(p.P50, 2),
+			trimFloat(p.P95, 2),
+			trimFloat(p.P99, 2),
+			trimFloat(p.ClientCPUPercent, 2),
+			trimFloat(p.ClientCPUSharePercent, 2),
+			strconv.FormatUint(p.ClientRSSBytes, 10),
+			strconv.Itoa(p.ClientGoroutines),
+		})
+	}
+	cw.Flush()
 }
 
 func trimFloat(v float64, decimals int) string {

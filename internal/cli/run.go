@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/xozan845-ctrl/loadforge-cli/internal/compare"
 	"github.com/xozan845-ctrl/loadforge-cli/internal/engine"
 	"github.com/xozan845-ctrl/loadforge-cli/internal/model"
 	"github.com/xozan845-ctrl/loadforge-cli/internal/reportserver"
@@ -38,6 +40,7 @@ type runOptions struct {
 	rate      float64
 	startRate float64
 	maxRate   float64
+	stages    []string
 	duration  time.Duration
 
 	workers    int
@@ -48,6 +51,7 @@ type runOptions struct {
 
 	maxErrorRate float64
 	maxP95       time.Duration
+	maxStatus    []string
 	noAutoStop   bool
 	noPreflight  bool
 
@@ -60,7 +64,9 @@ type runOptions struct {
 	quiet   bool
 
 	dryRun          bool
+	baseline        string
 	exportHTML      string
+	exportCSV       string
 	failOnThreshold bool
 }
 
@@ -97,11 +103,12 @@ ventana de 5 segundos.`,
 	f.StringVar(&opts.bodyFile, "body-file", "", "Archivo con el cuerpo de la petición")
 	f.StringVar(&opts.contentType, "content-type", "", "Content-Type (por defecto application/json si hay body)")
 
-	f.StringVar(&opts.mode, "mode", engine.ModeRamp, "Modo: ramp (rampa) o constant (carga fija)")
-	f.Float64VarP(&opts.rate, "rate", "r", 20, "Peticiones por segundo en modo constant")
+	f.StringVar(&opts.mode, "mode", engine.ModeRamp, "Modo: ramp, constant, step, spike o soak")
+	f.Float64VarP(&opts.rate, "rate", "r", 20, "Peticiones por segundo en modo constant o soak")
 	f.Float64Var(&opts.startRate, "start-rate", 1, "req/s inicial en modo ramp")
 	f.Float64Var(&opts.maxRate, "max-rate", 50, "req/s máximo en modo ramp")
-	f.DurationVarP(&opts.duration, "duration", "d", 30*time.Second, "Duración de la prueba (ej. 30s, 2m)")
+	f.StringArrayVar(&opts.stages, "stage", nil, "Etapa RATE:DURACION para step/spike/soak (repetible)")
+	f.DurationVarP(&opts.duration, "duration", "d", 30*time.Second, "Duración (los stages la sobrescriben)")
 
 	f.IntVarP(&opts.workers, "workers", "c", 10, "Workers iniciales")
 	f.IntVar(&opts.maxWorkers, "max-workers", 0, "Máximo de workers (0 = automático)")
@@ -111,6 +118,7 @@ ventana de 5 segundos.`,
 
 	f.Float64Var(&opts.maxErrorRate, "max-error-rate", 0.01, "Tasa de error máxima, 0.01 = 1%")
 	f.DurationVar(&opts.maxP95, "max-p95", 500*time.Millisecond, "P95 máximo aceptable (0 para desactivar)")
+	f.StringArrayVar(&opts.maxStatus, "max-status", nil, "Máximo de respuestas por código HTTP, CODE=COUNT (repetible)")
 	f.BoolVar(&opts.noAutoStop, "no-autostop", false, "No detener la rampa al superar los umbrales")
 	f.BoolVar(&opts.noPreflight, "no-preflight", false, "No comprobar la URL una vez antes de generar carga")
 
@@ -119,7 +127,9 @@ ventana de 5 segundos.`,
 	f.BoolVar(&opts.noOpen, "no-open", false, "No abrir el navegador automáticamente")
 	f.BoolVar(&opts.noServe, "no-serve", false, "No levantar el servidor del reporte")
 	f.StringVar(&opts.save, "save", "", "Guardar el reporte JSON en esta ruta")
+	f.StringVar(&opts.baseline, "baseline", "", "Comparar esta ejecución contra un reporte guardado")
 	f.StringVar(&opts.exportHTML, "export-html", "", "Guardar un reporte HTML autocontenido en esta ruta")
+	f.StringVar(&opts.exportCSV, "export-csv", "", "Guardar resumen y timeline en CSV (ruta o directorio)")
 	f.BoolVar(&opts.jsonOut, "json", false, "Imprimir el reporte JSON y salir (sin TUI ni servidor)")
 	f.BoolVar(&opts.quiet, "quiet", false, "Sin barra de progreso en vivo")
 	f.BoolVar(&opts.dryRun, "dry-run", false, "Validar URL, auth y TLS sin generar carga")
@@ -127,6 +137,49 @@ ventana de 5 segundos.`,
 
 	_ = cmd.MarkFlagRequired("url")
 	return cmd
+}
+
+func parseStages(raw []string) ([]engine.Stage, error) {
+	stages := make([]engine.Stage, 0, len(raw))
+	for i, item := range raw {
+		rateText, durText, ok := strings.Cut(item, ":")
+		if !ok {
+			return nil, fmt.Errorf("stage %d inválido %q: usa RATE:DURACION, por ejemplo 50:30s", i+1, item)
+		}
+		rate, err := strconv.ParseFloat(strings.TrimSpace(rateText), 64)
+		if err != nil || rate <= 0 {
+			return nil, fmt.Errorf("stage %d: rate inválido %q", i+1, rateText)
+		}
+		dur, err := time.ParseDuration(strings.TrimSpace(durText))
+		if err != nil || dur <= 0 {
+			return nil, fmt.Errorf("stage %d: duración inválida %q", i+1, durText)
+		}
+		stages = append(stages, engine.Stage{Rate: rate, Duration: dur})
+	}
+	return stages, nil
+}
+
+func parseStatusLimits(raw []string) (map[int]uint64, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	limits := make(map[int]uint64, len(raw))
+	for i, item := range raw {
+		codeText, countText, ok := strings.Cut(item, "=")
+		if !ok {
+			return nil, fmt.Errorf("--max-status %d inválido %q: usa CODE=COUNT, por ejemplo 404=0", i+1, item)
+		}
+		code, err := strconv.Atoi(strings.TrimSpace(codeText))
+		if err != nil || code < 100 || code > 599 {
+			return nil, fmt.Errorf("--max-status %d: código HTTP inválido %q", i+1, codeText)
+		}
+		count, err := strconv.ParseUint(strings.TrimSpace(countText), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("--max-status %d: conteo inválido %q", i+1, countText)
+		}
+		limits[code] = count
+	}
+	return limits, nil
 }
 
 func buildConfig(opts *runOptions) (engine.Config, error) {
@@ -180,6 +233,32 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		startRate, maxRate = opts.rate, opts.rate
 	}
 
+	var stages []engine.Stage
+	if len(opts.stages) > 0 {
+		if mode != engine.ModeStep && mode != engine.ModeSpike && mode != engine.ModeSoak {
+			return engine.Config{}, fmt.Errorf("--stage solo se usa con --mode step, spike o soak")
+		}
+		parsed, err := parseStages(opts.stages)
+		if err != nil {
+			return engine.Config{}, err
+		}
+		stages = parsed
+		maxRate = 0
+		for _, s := range parsed {
+			if s.Rate > maxRate {
+				maxRate = s.Rate
+			}
+		}
+	}
+	if mode == engine.ModeSoak && len(stages) == 0 {
+		startRate, maxRate = opts.rate, opts.rate
+	}
+
+	statusLimits, err := parseStatusLimits(opts.maxStatus)
+	if err != nil {
+		return engine.Config{}, err
+	}
+
 	maxWorkers := opts.maxWorkers
 	if maxWorkers <= 0 {
 		auto := int(math.Ceil(maxRate * 2))
@@ -204,6 +283,7 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		Rate:         opts.rate,
 		StartRate:    startRate,
 		MaxRate:      maxRate,
+		Stages:       stages,
 		Duration:     opts.duration,
 		Workers:      opts.workers,
 		MaxWorkers:   maxWorkers,
@@ -212,7 +292,8 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		MaxBody:      opts.maxBody,
 		MaxErrorRate: opts.maxErrorRate,
 		MaxP95:       opts.maxP95,
-		AutoStop:     !opts.noAutoStop && mode == engine.ModeRamp,
+		MaxStatus:    statusLimits,
+		AutoStop:     !opts.noAutoStop && (mode == engine.ModeRamp || mode == engine.ModeStep || mode == engine.ModeSpike),
 		Preflight:    !opts.noPreflight,
 		Version:      version.Version,
 	}
@@ -240,6 +321,16 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 		return err
 	}
 
+	if opts.baseline != "" {
+		base, err := loadReport(opts.baseline)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, warnStyle.Render("⚠ ")+"baseline ignorado: "+err.Error())
+		} else {
+			cmp := compare.Build(base, report)
+			report.Comparison = &cmp
+		}
+	}
+
 	var savedPath string
 	if opts.save != "" {
 		savedPath, err = saveReport(opts.save, report)
@@ -258,6 +349,15 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 		}
 	}
 
+	var csvSummary, csvTimeline string
+	if opts.exportCSV != "" {
+		csvSummary, csvTimeline, err = reportserver.ExportCSV(report, opts.exportCSV)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, warnStyle.Render("⚠ ")+"no se pudo exportar el CSV: "+err.Error())
+			csvSummary, csvTimeline = "", ""
+		}
+	}
+
 	if opts.jsonOut {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -267,12 +367,20 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 		if htmlPath != "" {
 			fmt.Fprintln(os.Stderr, "  HTML guardado en "+htmlPath)
 		}
+		if csvSummary != "" {
+			fmt.Fprintln(os.Stderr, "  CSV guardado en "+csvSummary+" y "+csvTimeline)
+		}
 		return thresholdError(report.Verdict, opts.failOnThreshold)
 	}
 
 	printSummary(report, savedPath)
 	if htmlPath != "" {
 		fmt.Println("  " + okStyle.Render("✓") + " " + valueStyle.Render("HTML guardado en ") + mutedStyle.Render(htmlPath))
+		fmt.Println()
+	}
+	if csvSummary != "" {
+		fmt.Println("  " + okStyle.Render("✓") + " " + valueStyle.Render("CSV guardado en ") +
+			mutedStyle.Render(csvSummary+", "+csvTimeline))
 		fmt.Println()
 	}
 	if err := thresholdError(report.Verdict, opts.failOnThreshold); err != nil {
@@ -330,6 +438,13 @@ func executeDryRun(cfg engine.Config) error {
 	mode := fmt.Sprintf("%s %.0f req/s", cfg.Mode, cfg.Rate)
 	if cfg.Mode == engine.ModeRamp {
 		mode = fmt.Sprintf("%s %.0f → %.0f req/s", cfg.Mode, cfg.StartRate, cfg.MaxRate)
+	}
+	if len(cfg.Stages) > 0 {
+		parts := make([]string, 0, len(cfg.Stages))
+		for _, s := range cfg.Stages {
+			parts = append(parts, fmt.Sprintf("%.0f:%s", s.Rate, s.Duration))
+		}
+		mode = cfg.Mode + " " + strings.Join(parts, " → ")
 	}
 	fmt.Println("  " + kv("Objetivo", engine.SafeURL(cfg.URL)+" · "+cfg.Method))
 	fmt.Println("  " + kv("Modo", mode))

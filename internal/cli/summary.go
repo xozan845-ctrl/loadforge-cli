@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
+	"github.com/xozan845-ctrl/loadforge-cli/internal/compare"
 	"github.com/xozan845-ctrl/loadforge-cli/internal/model"
 )
 
@@ -86,6 +87,9 @@ func printSummary(r *model.Report, savedPath string) {
 			humanBytes(r.Summary.BytesIn), humanBytes(r.Summary.BytesOut))))
 	}
 
+	if len(r.Meta.Stages) > 0 {
+		rows = append(rows, kv("Perfil", stagesText(r.Meta.Stages, narrow)))
+	}
 	if r.Meta.Mode == "ramp" {
 		switch v.Status {
 		case model.VerdictLimit:
@@ -140,10 +144,39 @@ func printSummary(r *model.Report, savedPath string) {
 		fmt.Println()
 	}
 
+	if r.Comparison != nil {
+		printComparisonSummary(r.Comparison)
+	}
+
 	if savedPath != "" {
 		fmt.Println("  " + okStyle.Render("✓") + " " + valueStyle.Render("JSON guardado en ") + mutedStyle.Render(savedPath))
 		fmt.Println()
 	}
+}
+
+func printComparisonSummary(cmp *model.Comparison) {
+	fmt.Println("  " + labelStyle.Render("Comparación con baseline"))
+	max := 4
+	for i, m := range cmp.Metrics {
+		if i >= max {
+			break
+		}
+		mark := ""
+		if m.Regressed {
+			mark = " " + warnStyle.Render("⚠")
+		} else if m.Improved {
+			mark = " " + okStyle.Render("✓")
+		}
+		fmt.Println("  " + valueStyle.Render(m.Label+": ") + mutedStyle.Render(compare.FormatMetric(m)) + mark)
+	}
+	switch {
+	case len(cmp.Regressions) > 0:
+		fmt.Println("  " + warnStyle.Render("⚠ ") + mutedStyle.Render(fmt.Sprintf("%d regresiones: %s",
+			len(cmp.Regressions), strings.Join(cmp.Regressions, ", "))))
+	case len(cmp.Improvements) > 0:
+		fmt.Println("  " + okStyle.Render("✓ ") + mutedStyle.Render("mejoras: "+strings.Join(cmp.Improvements, ", ")))
+	}
+	fmt.Println()
 }
 
 func printReportURL(url string) {
@@ -201,10 +234,14 @@ func formatMs(v float64) string {
 
 func thresholdsText(t model.Thresholds) string {
 	errPart := fmt.Sprintf("errores ≤ %.2f%%", t.MaxErrorRate*100)
+	out := "P95 sin umbral · " + errPart
 	if t.MaxP95Ms > 0 {
-		return fmt.Sprintf("P95 ≤ %s · %s", formatMs(t.MaxP95Ms), errPart)
+		out = fmt.Sprintf("P95 ≤ %s · %s", formatMs(t.MaxP95Ms), errPart)
 	}
-	return "P95 sin umbral · " + errPart
+	for _, limit := range t.MaxStatus {
+		out += fmt.Sprintf(" · %d≤%d", limit.Code, limit.Max)
+	}
+	return out
 }
 
 func environmentText(e model.Environment, narrow bool) string {
@@ -261,12 +298,33 @@ func clientResourcesText(e model.Environment, narrow bool) string {
 	return strings.Join(parts, " · ")
 }
 
+func stagesText(stages []model.StageInfo, narrow bool) string {
+	parts := make([]string, 0, len(stages))
+	total := int64(0)
+	for _, s := range stages {
+		total += s.DurationMs
+		if narrow {
+			parts = append(parts, fmt.Sprintf("%.0f", s.Rate))
+		} else {
+			parts = append(parts, fmt.Sprintf("%.0f req/s × %ds", s.Rate, s.DurationMs/1000))
+		}
+	}
+	if narrow {
+		return fmt.Sprintf("%s req/s · %ds", strings.Join(parts, "→"), total/1000)
+	}
+	return strings.Join(parts, " → ")
+}
+
 func thresholdsTextNarrow(t model.Thresholds) string {
 	errPart := fmt.Sprintf("err ≤ %.2f%%", t.MaxErrorRate*100)
+	out := errPart
 	if t.MaxP95Ms > 0 {
-		return fmt.Sprintf("P95 ≤ %s · %s", formatMs(t.MaxP95Ms), errPart)
+		out = fmt.Sprintf("P95 ≤ %s · %s", formatMs(t.MaxP95Ms), errPart)
 	}
-	return errPart
+	for _, limit := range t.MaxStatus {
+		out += fmt.Sprintf(" · %d≤%d", limit.Code, limit.Max)
+	}
+	return out
 }
 
 func formatDuration(d time.Duration) string {
