@@ -40,6 +40,7 @@ jobs:
 
           # Patch the runtime to skip the extra argv[1] that Android's linker
           # inserts when launching an android/arm64 binary from a shell.
+          export GOROOT="$(go env GOROOT)"
           python3 - <<'PY'
           import os
           p = os.path.join(os.environ["GOROOT"], "src/runtime/runtime1.go")
