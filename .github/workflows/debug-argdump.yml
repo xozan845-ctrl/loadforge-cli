@@ -32,18 +32,44 @@ jobs:
           	for i, a := range os.Args {
           		fmt.Printf("arg[%d]=%q\n", i, a)
           	}
-          	if b, err := os.ReadFile("/proc/self/cmdline"); err == nil {
-          		fmt.Printf("cmdline=%q\n", string(b))
-          	}
           }
           GOEOF
           go mod init argdump >/dev/null 2>&1
-          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -buildvcs=false -o argdump-android .
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -buildvcs=false -o argdump-linux .
+
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -buildvcs=false -o argdump-plain .
+
+          # Patch the runtime to skip the extra argv[1] that Android's linker
+          # inserts when launching an android/arm64 binary from a shell.
+          python3 - <<'PY'
+          import os
+          p = os.path.join(os.environ["GOROOT"], "src/runtime/runtime1.go")
+          s = open(p).read()
+          old = '''\targslice = make([]string, argc)
+          \tfor i := int32(0); i < argc; i++ {
+          \t\targslice[i] = gostringnocopy(argv_index(argv, i))
+          \t}'''
+          new = '''\tvar adjust int32
+          \tif GOOS == "android" {
+          \t\tadjust = 1
+          \t}
+          \targslice = make([]string, argc-adjust)
+          \tfor i := int32(0); i < argc-adjust; i++ {
+          \t\tidx := i
+          \t\tif i > 0 {
+          \t\t\tidx += adjust
+          \t\t}
+          \t\targslice[i] = gostringnocopy(argv_index(argv, idx))
+          \t}'''
+          assert old in s, "runtime1.go: goargs block not found"
+          open("/tmp/runtime1_android.go", "w").write(s.replace(old, new))
+          PY
+          printf '{"Replace":{"%s/src/runtime/runtime1.go":"/tmp/runtime1_android.go"}}\n' "$GOROOT" > /tmp/overlay.json
+          cat /tmp/overlay.json
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -overlay /tmp/overlay.json -trimpath -buildvcs=false -o argdump-patched .
 
       - uses: actions/upload-artifact@v4
         with:
           name: argdump
           path: |
-            /tmp/argdump/argdump-android
-            /tmp/argdump/argdump-linux
+            /tmp/argdump/argdump-plain
+            /tmp/argdump/argdump-patched
