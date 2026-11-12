@@ -1,0 +1,49 @@
+name: debug-argdump
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+
+      - name: Build argdump
+        run: |
+          mkdir -p /tmp/argdump && cd /tmp/argdump
+          cat > main.go <<'GOEOF'
+          package main
+
+          import (
+          	"fmt"
+          	"os"
+          	"runtime"
+          )
+
+          func main() {
+          	fmt.Printf("goos=%s goarch=%s\n", runtime.GOOS, runtime.GOARCH)
+          	fmt.Printf("argc=%d\n", len(os.Args))
+          	for i, a := range os.Args {
+          		fmt.Printf("arg[%d]=%q\n", i, a)
+          	}
+          	if b, err := os.ReadFile("/proc/self/cmdline"); err == nil {
+          		fmt.Printf("cmdline=%q\n", string(b))
+          	}
+          }
+          GOEOF
+          go mod init argdump >/dev/null 2>&1
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -buildvcs=false -o argdump-android .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -buildvcs=false -o argdump-linux .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: argdump
+          path: |
+            /tmp/argdump/argdump-android
+            /tmp/argdump/argdump-linux
