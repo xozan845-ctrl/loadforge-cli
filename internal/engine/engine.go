@@ -146,6 +146,7 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 
 	start := time.Now()
 	agg := newAggregator(cfg, pacer, start)
+	sampler := newEnvSampler()
 
 	done := make(chan struct{})
 	go func() {
@@ -161,6 +162,7 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 
 	var (
 		lastProgress = time.Time{}
+		lastSample   = time.Time{}
 		checked      = 0
 		autoStopped  = false
 		stopReason   string
@@ -169,6 +171,11 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 	for res := range results {
 		elapsed := time.Since(start)
 		agg.add(res, elapsed)
+
+		if time.Since(lastSample) >= 200*time.Millisecond {
+			sampler.sample()
+			lastSample = time.Now()
+		}
 
 		if cfg.AutoStop && !autoStopped {
 			if len(agg.timeline) > checked {
@@ -194,7 +201,10 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 		onProgress(agg.progress(end.Sub(start), false))
 	}
 
-	return agg.report(interrupted, autoStopped, stopReason, end), nil
+	report := agg.report(interrupted, autoStopped, stopReason, end)
+	report.Environment = sampler.build(end)
+	detectClientBottleneck(&report.Environment, cfg, report.Summary.Rate)
+	return report, nil
 }
 
 func newHTTPClient(cfg Config) *http.Client {

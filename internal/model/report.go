@@ -125,12 +125,42 @@ type Verdict struct {
 	Recommendations []string `json:"recommendations"`
 }
 
-// Environment records the machine that generated the load.
+// Environment records the machine that generated the load and how much of it
+// LoadForge itself consumed. All resource fields are optional: collectors are
+// best-effort and may be unavailable on some platforms.
 type Environment struct {
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	CPUs      int    `json:"cpus"`
-	GoVersion string `json:"go_version"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
+	CPUs       int    `json:"cpus"`
+	GoVersion  string `json:"go_version"`
+	GOMAXPROCS int    `json:"gomaxprocs,omitempty"`
+	Kernel     string `json:"kernel,omitempty"`
+
+	MemoryTotalBytes     uint64  `json:"memory_total_bytes,omitempty"`
+	MemoryAvailableBytes uint64  `json:"memory_available_bytes,omitempty"`
+	Load1                float64 `json:"load1,omitempty"`
+	Load5                float64 `json:"load5,omitempty"`
+	Load15               float64 `json:"load15,omitempty"`
+
+	ProcessCPUUserMs       float64 `json:"process_cpu_user_ms,omitempty"`
+	ProcessCPUSystemMs     float64 `json:"process_cpu_system_ms,omitempty"`
+	ProcessCPUPercent      float64 `json:"process_cpu_percent,omitempty"`
+	ProcessCPUSharePercent float64 `json:"process_cpu_share_percent,omitempty"`
+	MaxRSSBytes            uint64  `json:"max_rss_bytes,omitempty"`
+
+	GoroutinesMax int `json:"goroutines_max,omitempty"`
+	GoroutinesEnd int `json:"goroutines_end,omitempty"`
+
+	HeapAllocBytes  uint64  `json:"heap_alloc_bytes,omitempty"`
+	HeapSysBytes    uint64  `json:"heap_sys_bytes,omitempty"`
+	TotalAllocBytes uint64  `json:"total_alloc_bytes,omitempty"`
+	NumGC           uint32  `json:"num_gc,omitempty"`
+	GCPauseTotalMs  float64 `json:"gc_pause_total_ms,omitempty"`
+	GCCPUFraction   float64 `json:"gc_cpu_fraction,omitempty"`
+
+	// ClientBottleneck is set when the load generator itself looks saturated,
+	// so the reader does not blame the target for client-side limits.
+	ClientBottleneck string `json:"client_bottleneck,omitempty"`
 }
 
 // Progress is a live snapshot consumed by the terminal UI.

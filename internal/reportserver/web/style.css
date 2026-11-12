@@ -258,6 +258,22 @@ body {
 }
 .chip-label { font-size: 9px; color: var(--faint); align-self: center; margin-right: 2px; }
 
+.client-note {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  background: rgba(251, 191, 36, 0.06);
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.client-note.ok {
+  border-color: rgba(52, 211, 153, 0.28);
+  background: rgba(52, 211, 153, 0.06);
+  color: var(--green);
+}
+
 footer {
   display: flex;
   flex-wrap: wrap;

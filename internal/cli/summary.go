@@ -85,9 +85,18 @@ func printSummary(r *model.Report, savedPath string) {
 		}
 	}
 	rows = append(rows, kv("Umbrales", thresholdsText(r.Thresholds)))
+	rows = append(rows, kv("Entorno", environmentText(r.Environment)))
+	rows = append(rows, kv("Cliente", clientText(r.Environment)))
 
 	fmt.Println(boxStyle.Width(boxWidth).Render(strings.Join(rows, "\n")))
 	fmt.Println()
+
+	if r.Environment.ClientBottleneck != "" {
+		wrapped := mutedStyle.Width(width - 4).Render(r.Environment.ClientBottleneck)
+		fmt.Println("  " + warnStyle.Render("⚠ ") +
+			strings.ReplaceAll(wrapped, "\n", "\n    "))
+		fmt.Println()
+	}
 
 	if len(v.Recommendations) > 0 {
 		fmt.Println("  " + labelStyle.Render("Recomendaciones"))
@@ -171,6 +180,44 @@ func thresholdsText(t model.Thresholds) string {
 		return fmt.Sprintf("P95 ≤ %s · %s", formatMs(t.MaxP95Ms), errPart)
 	}
 	return "P95 sin umbral · " + errPart
+}
+
+func environmentText(e model.Environment) string {
+	parts := []string{e.OS + "/" + e.Arch}
+	if e.CPUs > 0 {
+		parts = append(parts, fmt.Sprintf("%d CPU", e.CPUs))
+	}
+	if e.GOMAXPROCS > 0 && e.GOMAXPROCS != e.CPUs {
+		parts = append(parts, fmt.Sprintf("GOMAXPROCS %d", e.GOMAXPROCS))
+	}
+	if e.MemoryTotalBytes > 0 {
+		parts = append(parts, humanBytes(e.MemoryTotalBytes)+" RAM")
+	}
+	return strings.Join(parts, " · ")
+}
+
+func clientText(e model.Environment) string {
+	var parts []string
+	if e.ProcessCPUPercent > 0 {
+		cpu := fmt.Sprintf("CPU %.1f%% de un núcleo", e.ProcessCPUPercent)
+		if e.ProcessCPUSharePercent > 0 {
+			cpu += fmt.Sprintf(" · %.1f%% del equipo", e.ProcessCPUSharePercent)
+		}
+		parts = append(parts, cpu)
+	}
+	if e.MaxRSSBytes > 0 {
+		parts = append(parts, humanBytes(e.MaxRSSBytes)+" RSS")
+	}
+	if e.GoroutinesMax > 0 {
+		parts = append(parts, fmt.Sprintf("%d goroutines", e.GoroutinesMax))
+	}
+	if e.NumGC > 0 {
+		parts = append(parts, fmt.Sprintf("GC %d×", e.NumGC))
+	}
+	if len(parts) == 0 {
+		return "no disponible en esta plataforma"
+	}
+	return strings.Join(parts, " · ")
 }
 
 func formatDuration(d time.Duration) string {

@@ -54,6 +54,12 @@ func TestRunAgainstHealthyServer(t *testing.T) {
 	if progress == 0 {
 		t.Fatal("expected progress callbacks")
 	}
+	if report.Environment.CPUs < 1 || report.Environment.GoVersion == "" {
+		t.Fatalf("missing environment data: %+v", report.Environment)
+	}
+	if report.Environment.GoroutinesMax < 1 {
+		t.Fatalf("missing goroutine peak: %+v", report.Environment)
+	}
 }
 
 func TestRunCancellationReturnsPartialReport(t *testing.T) {

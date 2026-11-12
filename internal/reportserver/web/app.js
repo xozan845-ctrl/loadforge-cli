@@ -258,6 +258,90 @@ function renderRecommendations(r) {
   for (const text of items) wrap.append(node("li", "", text));
 }
 
+function renderEnvironment(r) {
+  const e = r.environment || {};
+
+  const envGrid = document.getElementById("envGrid");
+  envGrid.replaceChildren();
+  const hasLoad = e.load1 || e.load5 || e.load15;
+  const memory = e.memory_total_bytes
+    ? `${bytes(e.memory_total_bytes)} total · ${bytes(e.memory_available_bytes || 0)} libres al final`
+    : "no disponible";
+  const cpus = e.cpus
+    ? `${e.cpus}${e.gomaxprocs && e.gomaxprocs !== e.cpus ? ` · GOMAXPROCS ${e.gomaxprocs}` : ""}`
+    : "no disponible";
+  const envItems = [
+    { k: "Sistema", v: `${e.os || "—"}/${e.arch || "—"}` },
+    { k: "Kernel", v: e.kernel || "no disponible" },
+    { k: "CPU lógicas", v: cpus },
+    { k: "Memoria", v: memory },
+    {
+      k: "Carga media",
+      v: hasLoad
+        ? `${fmtNum.format(e.load1 || 0)} / ${fmtNum.format(e.load5 || 0)} / ${fmtNum.format(e.load15 || 0)} (1/5/15 min)`
+        : "no disponible",
+    },
+    { k: "Runtime", v: e.go_version || "no disponible" },
+  ];
+  for (const item of envItems) {
+    const box = node("div", "meta-item");
+    box.append(node("div", "k", item.k), node("div", "v", item.v));
+    envGrid.append(box);
+  }
+
+  const clientGrid = document.getElementById("clientGrid");
+  clientGrid.replaceChildren();
+  const cpuPct = e.process_cpu_percent || 0;
+  const share = e.process_cpu_share_percent || 0;
+  const cpuText = cpuPct
+    ? `${fmtNum.format(cpuPct)}% de un núcleo${share ? ` · ${fmtNum.format(share)}% del equipo` : ""}`
+    : "no disponible";
+  const cpuTime = e.process_cpu_user_ms || e.process_cpu_system_ms
+    ? `${fmtNum.format(e.process_cpu_user_ms || 0)} ms user · ${fmtNum.format(e.process_cpu_system_ms || 0)} ms sys`
+    : "no disponible";
+  const goroutines = e.goroutines_max || e.goroutines_end
+    ? `${fmtInt.format(e.goroutines_max || 0)} máx · ${fmtInt.format(e.goroutines_end || 0)} al final`
+    : "no disponible";
+  const heap = e.heap_alloc_bytes
+    ? `${bytes(e.heap_alloc_bytes)} en uso · ${bytes(e.heap_sys_bytes || 0)} reservado`
+    : "no disponible";
+  const gc = e.num_gc
+    ? `${fmtInt.format(e.num_gc)} ciclos · ${ms(e.gc_pause_total_ms || 0)} de pausa`
+    : "sin ciclos registrados";
+  const clientItems = [
+    { k: "CPU del proceso", v: cpuText, wide: true },
+    { k: "Tiempo de CPU", v: cpuTime },
+    { k: "RSS máximo", v: e.max_rss_bytes ? bytes(e.max_rss_bytes) : "no disponible" },
+    { k: "Goroutines", v: goroutines },
+    { k: "Heap", v: heap },
+    { k: "Memoria asignada", v: e.total_alloc_bytes ? bytes(e.total_alloc_bytes) : "no disponible" },
+    { k: "Recolección (GC)", v: gc },
+    { k: "CPU en GC", v: e.gc_cpu_fraction ? fmtPct(e.gc_cpu_fraction) : "—" },
+  ];
+  for (const item of clientItems) {
+    const box = node("div", "meta-item" + (item.wide ? " wide" : ""));
+    box.append(node("div", "k", item.k), node("div", "v", item.v));
+    clientGrid.append(box);
+  }
+
+  const note = document.getElementById("clientNote");
+  note.classList.remove("warn", "ok");
+  if (e.client_bottleneck) {
+    note.classList.add("warn");
+    note.textContent = e.client_bottleneck;
+    note.hidden = false;
+  } else if (share > 0) {
+    note.classList.add("ok");
+    note.textContent = `El cliente usó ${fmtNum.format(share)}% de su capacidad de CPU; no se detectó un cuello de botella local.`;
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+
+  document.getElementById("env").textContent =
+    `${e.os}/${e.arch} · ${e.cpus} CPUs` + (e.memory_total_bytes ? ` · ${bytes(e.memory_total_bytes)} RAM` : "");
+}
+
 function renderMeta(r) {
   const m = r.meta, e = r.environment;
   const grid = document.getElementById("metaGrid");
@@ -314,6 +398,7 @@ function render(r) {
   renderCodes(r);
   renderErrors(r);
   renderRecommendations(r);
+  renderEnvironment(r);
   renderMeta(r);
 }
 

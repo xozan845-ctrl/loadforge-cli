@@ -48,6 +48,9 @@ Al terminar:
 - **TUI en vivo** con barra de progreso, latencias y salud del backend.
 - **Reporte web** oscuro, responsive y offline, con gráficas [uPlot](https://github.com/leeoniya/uPlot),
   descarga de JSON/CSV e impresión a PDF.
+- **Entorno y coste del cliente**: CPU, memoria, carga media, goroutines, heap
+  y GC del equipo que genera la carga, con aviso si el propio cliente se
+  convierte en el cuello de botella.
 - **Redacción de secretos**: la API key nunca entra al reporte; los valores de
   query sensibles se reemplazan por `***`.
 
@@ -330,6 +333,28 @@ Cada punto agrupa las respuestas **completadas** en ese segundo. Si el backend
 tarda más que la duración, esas respuestas en vuelo aparecen al final; el
 `--timeout` acota la espera.
 
+### Entorno y rendimiento del cliente
+
+Una prueba de carga mide dos cosas: el backend y la máquina que genera la
+carga. El resumen final y el reporte web incluyen:
+
+- **Entorno**: sistema operativo, arquitectura, kernel, CPUs lógicas,
+  `GOMAXPROCS`, memoria total y disponible, carga media (1/5/15 min) y versión
+  de Go.
+- **Cliente**: CPU consumida por LoadForge (tiempo de usuario y sistema, % de
+  un núcleo y % del equipo), RSS máximo, goroutines máximas y finales, heap en
+  uso, memoria asignada total y actividad del recolector de basura.
+
+Estos datos son best-effort y dependen de la plataforma. En Termux/Android y
+Linux se leen de `/proc`; en macOS y Windows se usan las APIs del sistema. Si
+algún valor no está disponible, se omite.
+
+Si el cliente usa **≥ 70% de su capacidad de CPU** y la tasa real queda por
+debajo del 90% de la objetivo, el reporte muestra un aviso de **posible cuello
+de botella en el cliente**. En ese caso, parte de la degradación puede ser del
+equipo que genera la carga y no del backend: reduce `--max-rate`, usa menos
+workers o prueba desde otra máquina antes de culpar al servidor.
+
 ## Seguridad
 
 - Prefiere `LOADFORGE_API_KEY` a `--api-key`: los argumentos quedan en el
@@ -349,7 +374,8 @@ tarda más que la duración, esas respuestas en vuelo aparecen al final; el
 
 - Genera carga desde **una sola máquina**. En Termux, el cuello de botella
   puede ser el propio teléfono (CPU, red móvil, ahorro de energía). Compara
-  siempre `objetivo` vs. `real` en la gráfica.
+  siempre `objetivo` vs. `real` y revisa el bloque de **rendimiento del
+  cliente** antes de atribuir la caída al backend.
 - Android puede matar el proceso en segundo plano. Mantén Termux abierto y,
   si hace falta, usa `termux-wake-lock`.
 - Solo HTTP/HTTPS. No hay WebSocket, gRPC ni cargas multipart en esta versión.
