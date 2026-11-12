@@ -630,11 +630,16 @@ workers o prueba desde otra máquina antes de culpar al servidor.
   cliente** antes de atribuir la caída al backend.
 - Android puede matar el proceso en segundo plano. Mantén Termux abierto y,
   si hace falta, usa `termux-wake-lock`.
-- Solo HTTP/HTTPS. No hay WebSocket, gRPC ni cargas multipart en esta versión.
+- Protocolos soportados: **HTTP/HTTPS**, **WebSocket** y **multipart**. **gRPC
+  todavía no está implementado**; está planificado en la Fase 4C del roadmap.
 - Lee hasta `--max-body` bytes por respuesta (4 KB por defecto) para mantener
   el consumo de memoria bajo; la latencia incluye esa lectura.
-- No hay workers distribuidos ni almacenamiento histórico; guarda el JSON con
-  `--save`.
+- **La ejecución distribuida todavía no está disponible**: cada prueba usa una
+  sola máquina. Para más carga, ejecuta LoadForge desde varios equipos y
+  combina los reportes con `loadforge compare`.
+- El historial local (`--history-dir`) guarda ejecuciones y muestra las últimas
+  20 en el reporte web, sin base de datos SQLite ni tendencias a más largo
+  plazo.
 
 ## Desarrollo
 
