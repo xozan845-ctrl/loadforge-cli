@@ -1,0 +1,19 @@
+# Binarios y artefactos de build
+/dist/
+/loadforge
+/loadforge.exe
+*.exe
+*.test
+*.out
+
+# Reportes locales y secretos
+.env
+.env.*
+*.local.json
+/loadforge-*.json
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

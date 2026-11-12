@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>LoadForge · Reporte de carga</title>
+  <link rel="stylesheet" href="/assets/uplot.css">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="bg"></div>
+  <main class="wrap">
+    <header class="top">
+      <div class="brand">
+        <div class="logo">⚡</div>
+        <div>
+          <div class="name">loadforge</div>
+          <div class="tag">Reporte de prueba de carga</div>
+        </div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="/api/report.json" download>JSON</a>
+        <a class="btn" href="/api/timeline.csv" download>CSV</a>
+        <button class="btn" type="button" onclick="window.print()">PDF</button>
+      </div>
+    </header>
+
+    <section id="verdict" class="verdict">
+      <div class="v-icon" id="vIcon">•</div>
+      <div class="v-body">
+        <div class="eyebrow">Veredicto</div>
+        <h1 id="vTitle">Cargando reporte…</h1>
+        <p id="vMsg">Un momento.</p>
+      </div>
+      <div class="v-rate" id="vRateBox">
+        <strong id="vRate">—</strong>
+        <span id="vRateLabel">req/s</span>
+      </div>
+    </section>
+
+    <section class="cards" id="cards"></section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Latencia en el tiempo</h2>
+          <span>milisegundos · todas las respuestas</span>
+        </div>
+        <div id="latencyChart" class="chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Carga objetivo vs. real</h2>
+          <span>peticiones por segundo</span>
+        </div>
+        <div id="rpsChart" class="chart"></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Distribución de latencia</h2>
+          <span>conteo de respuestas</span>
+        </div>
+        <div id="dist" class="bars"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Códigos de estado</h2>
+          <span>respuestas HTTP</span>
+        </div>
+        <div id="codes" class="bars"></div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Errores</h2>
+          <span>agrupados por mensaje</span>
+        </div>
+        <div id="errors"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Recomendaciones</h2>
+          <span>acciones sugeridas</span>
+        </div>
+        <ul id="recs" class="recs"></ul>
+      </div>
+    </section>
+
+    <section class="panel meta-panel">
+      <div class="panel-head">
+        <h2>Detalles de la prueba</h2>
+        <span id="metaWhen"></span>
+      </div>
+      <div id="metaGrid" class="meta-grid"></div>
+      <div id="headerChips" class="chips"></div>
+    </section>
+
+    <footer>
+      <span><strong>loadforge</strong> <span id="version"></span></span>
+      <span id="env"></span>
+      <span>Servido localmente · tus datos no salen de este dispositivo</span>
+    </footer>
+  </main>
+
+  <script src="/assets/uplot.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,330 @@
+# ⚡ LoadForge
+
+Pruebas de carga para APIs, desde la terminal. Le das una URL y una API key;
+LoadForge genera carga real, mide latencias, errores y throughput, estima el
+punto de quiebre y te sirve un reporte interactivo en `localhost`.
+
+Funciona en **Termux (Android), Linux, macOS y Windows** con un único binario
+estático. El reporte va embebido: no necesita internet ni dependencias externas.
+
+```
+  ⚡ LOADFORGE   ramp 1 → 50 req/s · 30s
+
+  https://api.ejemplo.com/health
+
+  ⠹ 12.4s / 30.0s   ████████████░░░░░░░░  41%
+
+  Peticiones   3,241          Ritmo   82.0 / 82.0 req/s
+  Latencia     P50 12 ms   P95 45 ms   P99 90 ms
+  Salud        99.7% éxito   0.3% errores
+  Umbrales     P95 ≤ 500 ms   errores ≤ 1.0%
+```
+
+Al terminar:
+
+```
+  ▲  PUNTO DE QUIEBRE DETECTADO
+  El sistema se mantuvo estable hasta ~38 req/s...
+
+  ➜  Reporte web listo
+     http://127.0.0.1:41234
+```
+
+## Qué incluye
+
+- **Motor de carga** basado en [Vegeta](https://github.com/tsenart/vegeta), con
+  workers dinámicos y pacing exacto para rampas.
+- **Dos modos**: `ramp` (sube de `start-rate` a `max-rate`) y `constant`
+  (carga fija).
+- **Métricas**: req/s reales vs. objetivo, P50/P90/P95/P99/P99.9, máximo,
+  distribución de latencia, códigos HTTP, bytes y errores agrupados.
+- **Timeline por segundo** con percentiles, para ver *cuándo* se degrada.
+- **Veredicto automático**: apto, punto de quiebre, fallo o interrumpido.
+- **Auto-stop** en rampas cuando el sistema se degrada de forma clara.
+- **TUI en vivo** con barra de progreso, latencias y salud del backend.
+- **Reporte web** oscuro, responsive y offline, con gráficas [uPlot](https://github.com/leeoniya/uPlot),
+  descarga de JSON/CSV e impresión a PDF.
+- **Redacción de secretos**: la API key nunca entra al reporte; los valores de
+  query sensibles se reemplazan por `***`.
+
+## Instalación
+
+### Binarios ya compilados
+
+En `dist/` hay binarios para:
+
+| Plataforma | Archivo |
+|---|---|
+| Termux / Android ARM64 | `loadforge-termux-arm64` |
+| Linux x86_64 | `loadforge-linux-amd64` |
+| Linux ARM64 (Raspberry Pi, etc.) | `loadforge-linux-arm64` |
+| Windows x86_64 | `loadforge-windows-amd64.exe` |
+| macOS Apple Silicon | `loadforge-darwin-arm64` |
+
+En **Termux**:
+
+```bash
+chmod +x loadforge-termux-arm64
+./loadforge-termux-arm64 --version
+```
+
+Si quieres dejarlo en el PATH:
+
+```bash
+mkdir -p ~/.local/bin
+cp loadforge-termux-arm64 ~/.local/bin/loadforge
+chmod +x ~/.local/bin/loadforge
+loadforge --version
+```
+
+En **Linux** (x86_64 o ARM64):
+
+```bash
+chmod +x loadforge-linux-amd64
+./loadforge-linux-amd64 --version
+```
+
+En **macOS Apple Silicon**:
+
+```bash
+chmod +x loadforge-darwin-arm64
+./loadforge-darwin-arm64 --version
+```
+
+En **Windows** (PowerShell):
+
+```powershell
+.\loadforge-windows-amd64.exe --version
+```
+
+Opcionalmente, renómbralo a `loadforge.exe` para escribirlo más rápido.
+
+### Desde el código
+
+```bash
+pkg install golang make  # Termux
+go build -trimpath -o loadforge ./cmd/loadforge
+```
+
+Requiere Go 1.24 o superior. Para compilar todas las plataformas:
+
+```bash
+make dist
+```
+
+## Uso rápido
+
+Los ejemplos usan `loadforge` asumiendo que el binario está en el `PATH`. Si
+lo ejecutas directamente desde `dist/`, usa `./loadforge-termux-arm64` en
+Termux, `./loadforge-linux-amd64` en Linux, `./loadforge-darwin-arm64` en
+macOS o `.\loadforge-windows-amd64.exe` en Windows.
+
+```bash
+export LOADFORGE_API_KEY="tu-token"
+
+loadforge run --url https://api.ejemplo.com/health
+```
+
+Por defecto hace una **rampa de 1 a 50 req/s durante 30 segundos**, con un
+umbral de **1% de errores** y **P95 de 500 ms**. Si el backend se degrada de
+forma clara, la prueba se detiene y reporta el punto de quiebre.
+
+El token se envía como `Authorization: Bearer <token>`. Para otros esquemas:
+
+```bash
+# Header X-API-Key, sin prefijo
+loadforge run --url https://api.ejemplo.com/v1/items \
+  --api-key "$LOADFORGE_API_KEY" \
+  --api-key-header X-API-Key \
+  --api-key-prefix ""
+
+# Header personalizado
+loadforge run --url https://api.ejemplo.com/v1/items \
+  -H "X-Tenant: acme" \
+  -H "Accept: application/json"
+```
+
+## Ejemplos
+
+**Carga constante y agresiva:**
+
+```bash
+LOADFORGE_API_KEY="$TOKEN" loadforge run \
+  --url https://api.ejemplo.com/v1/search \
+  --mode constant --rate 100 --duration 60s
+```
+
+**Encontrar el límite real:**
+
+```bash
+loadforge run \
+  --url https://api.ejemplo.com/v1/items \
+  --mode ramp --start-rate 10 --max-rate 500 --duration 2m \
+  --max-error-rate 0.02 --max-p95 800ms
+```
+
+**POST con JSON:**
+
+```bash
+loadforge run \
+  --url https://api.ejemplo.com/v1/items \
+  --method POST \
+  --body '{"name":"carga","price":10}' \
+  --api-key "$TOKEN"
+```
+
+**Cuerpo desde archivo y headers extra:**
+
+```bash
+loadforge run \
+  --url https://api.ejemplo.com/v1/orders \
+  --method POST --body-file pedido.json \
+  -H "X-Idempotency-Key: loadforge-1" \
+  --api-key "$TOKEN"
+```
+
+**Solo JSON para CI, sin servidor:**
+
+```bash
+loadforge run \
+  --url https://api.ejemplo.com/health \
+  --json --save reportes/run-$(date +%Y%m%d-%H%M).json
+```
+
+**Probar contra un backend local de mentira:**
+
+```bash
+# Terminal 1
+./dist/mockserver
+
+# Terminal 2
+loadforge run \
+  --url http://127.0.0.1:9099/api/data \
+  --mode ramp --start-rate 5 --max-rate 200 --duration 30s
+```
+
+## Flags principales
+
+| Flag | Default | Descripción |
+|---|---|---|
+| `-u, --url` | — | URL completa (`http://` o `https://`). Obligatorio. |
+| `-k, --api-key` | env `LOADFORGE_API_KEY` | API key. Mejor por variable de entorno. |
+| `--api-key-header` | `Authorization` | Header donde va la key. |
+| `--api-key-prefix` | `Bearer ` | Prefijo del valor. Vacío para `X-API-Key`. |
+| `-X, --method` | `GET` | Método HTTP. |
+| `-H, --header` | — | Header extra `Clave: Valor`, repetible. |
+| `--body` / `--body-file` | — | Cuerpo de la petición. |
+| `--content-type` | `application/json` si hay body | Content-Type explícito. |
+| `--mode` | `ramp` | `ramp` o `constant`. |
+| `-r, --rate` | `20` | req/s en modo `constant`. |
+| `--start-rate` | `1` | req/s inicial de la rampa. |
+| `--max-rate` | `50` | req/s máximo de la rampa. |
+| `-d, --duration` | `30s` | Duración (`30s`, `2m`, `1h`). |
+| `-c, --workers` | `10` | Workers iniciales. |
+| `--max-workers` | auto | Tope de concurrencia (auto = 2× `max-rate`, mín. 100). |
+| `-t, --timeout` | `10s` | Timeout por petición. |
+| `--insecure` | `false` | No verificar TLS (solo pruebas). |
+| `--max-body` | `4096` | Bytes de respuesta leídos por petición. |
+| `--max-error-rate` | `0.01` | SLO de errores (0.01 = 1%). |
+| `--max-p95` | `500ms` | SLO de latencia P95 (`0` lo desactiva). |
+| `--no-autostop` | `false` | No cortar la rampa al degradarse. |
+| `--host` | `127.0.0.1` | Interfaz del reporte. |
+| `--port` | `0` | Puerto (`0` = aleatorio). |
+| `--no-open` | `false` | No abrir el navegador. |
+| `--no-serve` | `false` | No levantar el servidor. |
+| `--save` | — | Guardar el JSON en una ruta o directorio. |
+| `--json` | `false` | Imprimir JSON y salir (sin TUI ni servidor). |
+| `--quiet` | `false` | Sin progreso en vivo. |
+
+## Cómo leer el reporte
+
+### Veredicto
+
+- **✔ Sin punto de quiebre / Carga sostenida**: no se superaron los umbrales.
+- **▲ Punto de quiebre detectado**: en una rampa, se encontró la carga donde
+  el P95 o la tasa de error cruzaron el SLO. El número grande es la última
+  tasa objetivo que se mantuvo saludable.
+- **✕ Fallo**: autenticación rechazada, la mayoría de peticiones falló o los
+  umbrales se superaron en una carga constante.
+- **◼ Interrumpido**: pulsaste Ctrl+C; los datos son parciales.
+
+### Percentiles
+
+El **P95 = 500 ms** significa que el 95% de las respuestas tardó 500 ms o
+menos. Los promedios esconden colas: mira siempre P95/P99, no solo la media.
+La distribución de latencia muestra si hay una cola larga.
+
+### Punto de quiebre
+
+Se evalúa cada segundo completado. El punto de quiebre es la última tasa
+objetivo con `errores ≤ max-error-rate` y `P95 ≤ max-p95`. El auto-stop usa un
+margen de **2×** sobre el SLO de errores y **1.5×** sobre el de latencia, y
+exige al menos 20 peticiones en una ventana de 5 segundos, para no abortar por
+un par de fallos aislados. El reporte final sí usa los umbrales estrictos.
+
+### Timeline
+
+Cada punto agrupa las respuestas **completadas** en ese segundo. Si el backend
+tarda más que la duración, esas respuestas en vuelo aparecen al final; el
+`--timeout` acota la espera.
+
+## Seguridad
+
+- Prefiere `LOADFORGE_API_KEY` a `--api-key`: los argumentos quedan en el
+  historial y en `ps`.
+- La API key nunca se escribe en el reporte. Solo se listan nombres de headers.
+- Credenciales y parámetros sensibles de la URL (`token`, `secret`, `apikey`,
+  `password`, `signature`, etc.) se redactan como `***`.
+- El servidor escucha en `127.0.0.1` por defecto y **no tiene autenticación**.
+  Si usas `--host 0.0.0.0`, cualquiera en la red podrá abrir el reporte.
+- `--insecure` desactiva la verificación TLS. Úsalo solo contra entornos de
+  prueba.
+- **No pruebes sistemas que no te pertenezcan** o para los que no tengas
+  autorización. Una prueba de carga es, literalmente, un ataque de denegación
+  de servicio voluntario.
+
+## Limitaciones
+
+- Genera carga desde **una sola máquina**. En Termux, el cuello de botella
+  puede ser el propio teléfono (CPU, red móvil, ahorro de energía). Compara
+  siempre `objetivo` vs. `real` en la gráfica.
+- Android puede matar el proceso en segundo plano. Mantén Termux abierto y,
+  si hace falta, usa `termux-wake-lock`.
+- Solo HTTP/HTTPS. No hay WebSocket, gRPC ni cargas multipart en esta versión.
+- Lee hasta `--max-body` bytes por respuesta (4 KB por defecto) para mantener
+  el consumo de memoria bajo; la latencia incluye esa lectura.
+- No hay workers distribuidos ni almacenamiento histórico; guarda el JSON con
+  `--save`.
+
+## Desarrollo
+
+La arquitectura, los patrones aplicados, los compromisos y la ruta hacia una
+Clean/Hexagonal estricta están documentados en
+[**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md).
+
+```bash
+go test ./...                # unitarios + integración con httptest
+go run ./cmd/mockserver      # backend de prueba en :9099
+go run ./cmd/loadforge run --url http://127.0.0.1:9099/api/data
+```
+
+Estructura:
+
+```
+cmd/loadforge        entrada del CLI
+cmd/mockserver       backend de prueba (no se distribuye)
+internal/engine      Vegeta, pacer, agregación, veredicto
+internal/model       modelo JSON del reporte
+internal/tui         dashboard Bubble Tea
+internal/reportserver servidor y SPA embebida
+internal/cli         Cobra, flags y resumen final
+```
+
+## Atribución
+
+LoadForge se apoya en proyectos open source: Vegeta, Bubble Tea, Lip Gloss,
+Cobra, HdrHistogram-go y uPlot. Ver [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE).
