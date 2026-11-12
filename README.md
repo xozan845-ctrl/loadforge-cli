@@ -63,6 +63,12 @@ Al terminar:
   regresiones de latencia, errores y throughput.
 - **Umbrales por código HTTP**: por ejemplo `--max-status 404=0`.
 - **CSV completo**: resumen por secciones además del timeline por segundo.
+- **Payloads dinámicos**: `--data-file` con CSV/JSON y plantillas
+  `{{.Iteration}}`, `{{.RandomID}}`, `{{.columna}}`.
+- **OAuth2 client credentials**: token automático y renovación durante la prueba.
+- **Modelo cerrado**: `--mode vu --vus N --think-time 1s`, con pausa/reanudación
+  desde la TUI (`p`).
+- **Termux**: wake-lock automático, batería, temperatura y tipo de red.
 - **Redacción de secretos**: la API key nunca entra al reporte; los valores de
   query sensibles se reemplazan por `***`.
 
@@ -239,6 +245,41 @@ loadforge run --url https://api.ejemplo.com/health \
 
 Esto genera `reportes/summary.csv` y `reportes/timeline.csv`.
 
+**Payloads dinámicos desde CSV:**
+
+```bash
+# data.csv: name,email
+loadforge run --url https://api.ejemplo.com/v1/users \
+  --method POST --data-file data.csv \
+  --body '{"id":{{.Iteration}},"name":"{{.name}}","email":"{{.email}}","rid":"{{.RandomID}}"}'
+```
+
+Cada petición rota una fila del CSV/JSON. `{{.Iteration}}` empieza en 1 y
+`{{.RandomID}}` genera un identificador distinto por petición.
+
+**Modelo cerrado con usuarios virtuales:**
+
+```bash
+loadforge run --url https://api.ejemplo.com/health \
+  --mode vu --vus 20 --think-time 1s --duration 5m
+```
+
+Aquí la carga la generan 20 usuarios que esperan 1s entre peticiones, en lugar
+de un ritmo objetivo. Pulsa `p` en la TUI para pausar o reanudar.
+
+**OAuth2 client credentials:**
+
+```bash
+loadforge run --url https://api.ejemplo.com/v1/items \
+  --oauth2-token-url https://auth.ejemplo.com/oauth/token \
+  --oauth2-client-id "$CLIENT_ID" \
+  --oauth2-client-secret "$CLIENT_SECRET" \
+  --oauth2-scope "read:items"
+```
+
+El token se obtiene antes de la prueba y se renueva automáticamente cuando
+está a punto de caducar.
+
 **POST con JSON:**
 
 ```bash
@@ -374,7 +415,13 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--api-key-prefix` | `Bearer ` | Prefijo del valor. Vacío para `X-API-Key`. |
 | `-X, --method` | `GET` | Método HTTP. |
 | `-H, --header` | — | Header extra `Clave: Valor`, repetible. |
-| `--body` / `--body-file` | — | Cuerpo de la petición. |
+| `--body` / `--body-file` | — | Cuerpo de la petición (admite placeholders). |
+| `--data-file` | — | CSV o JSON con filas para templating. |
+| `--oauth2-token-url` | — | Endpoint OAuth2 client_credentials. |
+| `--oauth2-client-id` / `--oauth2-client-secret` | — | Credenciales OAuth2. |
+| `--oauth2-scope` | — | Scope solicitado. |
+| `--oauth2-token-field` | `access_token` | Campo del token (admite `data.token`). |
+| `--oauth2-auth-style` | `body` | Credenciales en `body` o `basic`. |
 | `--content-type` | `application/json` si hay body | Content-Type explícito. |
 | `--mode` | `ramp` | `ramp`, `constant`, `step`, `spike` o `soak`. |
 | `-r, --rate` | `20` | req/s en modo `constant` o `soak`. |
@@ -382,8 +429,10 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--max-rate` | `50` | req/s máximo de la rampa. |
 | `--stage` | — | Etapa `RATE:DURACION`, repetible para `step`/`spike`/`soak`. |
 | `-d, --duration` | `30s` | Duración (`30s`, `2m`, `1h`). |
-| `-c, --workers` | `10` | Workers iniciales. |
+| `-c, --workers` | `10` | Workers iniciales (modelo abierto). |
 | `--max-workers` | auto | Tope de concurrencia (auto = 2× `max-rate`, mín. 100). |
+| `--vus` | `10` | Usuarios virtuales en `--mode vu`. |
+| `--think-time` | `0` | Pausa por VU entre peticiones (ej. `1s`). |
 | `-t, --timeout` | `10s` | Timeout por petición. |
 | `--insecure` | `false` | No verificar TLS (solo pruebas). |
 | `--max-body` | `4096` | Bytes de respuesta leídos por petición. |
@@ -392,6 +441,7 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--max-status` | — | Máximo de respuestas por código, `CODE=COUNT` (repetible). |
 | `--no-autostop` | `false` | No cortar la rampa al degradarse. |
 | `--no-preflight` | `false` | No comprobar la URL antes de generar carga. |
+| `--no-wake-lock` | `false` | No usar `termux-wake-lock` durante la prueba. |
 | `--host` | `127.0.0.1` | Interfaz del reporte. |
 | `--port` | `0` | Puerto (`0` = aleatorio). |
 | `--no-open` | `false` | No abrir el navegador. |

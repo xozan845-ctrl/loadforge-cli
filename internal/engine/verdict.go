@@ -85,19 +85,23 @@ func buildVerdict(
 	latencyBreach := cfg.MaxP95 > 0 && lat.P95 > float64(cfg.MaxP95.Milliseconds())
 	errorBreach := summary.ErrorRate > cfg.MaxErrorRate
 
-	if cfg.Mode == ModeConstant || cfg.Mode == ModeSoak {
+	if cfg.Mode == ModeConstant || cfg.Mode == ModeSoak || cfg.Mode == ModeVU {
+		rate := cfg.AverageRate()
+		if cfg.Mode == ModeVU {
+			rate = summary.Rate
+		}
 		v.Status = model.VerdictPass
 		v.Title = "Carga sostenida"
 		v.Message = fmt.Sprintf(
 			"El sistema sostuvo %.0f req/s con %.1f%% de éxito y P95 de %.0f ms.",
-			cfg.AverageRate(), summary.SuccessRate*100, lat.P95,
+			rate, summary.SuccessRate*100, lat.P95,
 		)
 		if latencyBreach || errorBreach {
 			v.Status = model.VerdictFail
 			v.Title = "Carga no sostenida"
 			v.Message = fmt.Sprintf(
 				"A %.0f req/s se superaron los umbrales: %.1f%% de errores y P95 de %.0f ms.",
-				cfg.AverageRate(), summary.ErrorRate*100, lat.P95,
+				rate, summary.ErrorRate*100, lat.P95,
 			)
 		}
 		return v
@@ -301,7 +305,7 @@ func recommendations(
 	if autoStopped && stopReason != "" {
 		add("La prueba se detuvo automáticamente al superar los umbrales. Usa --no-autostop para exprimir el sistema hasta el final.")
 	}
-	if len(timeline) > 0 && cfg.Mode != ModeConstant && cfg.Mode != ModeSoak {
+	if len(timeline) > 0 && cfg.Mode != ModeConstant && cfg.Mode != ModeSoak && cfg.Mode != ModeVU {
 		_, _, found := findBreaking(timeline, cfg)
 		if !found && summary.Requests > 0 {
 			if cfg.Mode == ModeRamp {

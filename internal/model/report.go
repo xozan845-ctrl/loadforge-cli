@@ -83,6 +83,8 @@ type Meta struct {
 	RateMax         float64     `json:"rate_max"`
 	Workers         int         `json:"workers"`
 	MaxWorkers      int         `json:"max_workers"`
+	VUs             int         `json:"vus,omitempty"`
+	ThinkTimeMs     int64       `json:"think_time_ms,omitempty"`
 	HeaderNames     []string    `json:"header_names"`
 	BodyBytes       int         `json:"body_bytes"`
 	TimeoutMs       int64       `json:"timeout_ms"`
@@ -223,6 +225,10 @@ type Environment struct {
 	NumGC           uint32  `json:"num_gc,omitempty"`
 	GCPauseTotalMs  float64 `json:"gc_pause_total_ms,omitempty"`
 	GCCPUFraction   float64 `json:"gc_cpu_fraction,omitempty"`
+
+	BatteryPercent      float64 `json:"battery_percent,omitempty"`
+	BatteryTemperatureC float64 `json:"battery_temperature_c,omitempty"`
+	Network             string  `json:"network,omitempty"`
 
 	// ClientBottleneck is set when the load generator itself looks saturated,
 	// so the reader does not blame the target for client-side limits.

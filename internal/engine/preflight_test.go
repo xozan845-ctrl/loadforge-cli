@@ -19,6 +19,10 @@ func preflightConfig(url, method string) Config {
 	}
 }
 
+func runPreflight(cfg Config) error {
+	return preflight(context.Background(), cfg, newHTTPClient(cfg, nil))
+}
+
 func TestPreflightAcceptsHealthyEndpoint(t *testing.T) {
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +31,7 @@ func TestPreflightAcceptsHealthyEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := preflight(context.Background(), preflightConfig(srv.URL, http.MethodGet)); err != nil {
+	if err := runPreflight(preflightConfig(srv.URL, http.MethodGet)); err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 	if hits != 1 {
@@ -39,7 +43,7 @@ func TestPreflightRejectsMissingRoute(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 
-	err := preflight(context.Background(), preflightConfig(srv.URL, http.MethodGet))
+	err := runPreflight(preflightConfig(srv.URL, http.MethodGet))
 	if err == nil {
 		t.Fatal("expected an error for 404")
 	}
@@ -54,7 +58,7 @@ func TestPreflightRejectsBadCredentials(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := preflight(context.Background(), preflightConfig(srv.URL, http.MethodGet))
+	err := runPreflight(preflightConfig(srv.URL, http.MethodGet))
 	if err == nil {
 		t.Fatal("expected an error for 401")
 	}
@@ -69,7 +73,7 @@ func TestPreflightLetsServerErrorsThrough(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := preflight(context.Background(), preflightConfig(srv.URL, http.MethodGet)); err != nil {
+	if err := runPreflight(preflightConfig(srv.URL, http.MethodGet)); err != nil {
 		t.Fatalf("5xx should not abort the test: %v", err)
 	}
 }
@@ -82,7 +86,7 @@ func TestPreflightSkipsUnsafeMethods(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := preflight(context.Background(), preflightConfig(srv.URL, http.MethodPost)); err != nil {
+	if err := runPreflight(preflightConfig(srv.URL, http.MethodPost)); err != nil {
 		t.Fatalf("POST should skip preflight: %v", err)
 	}
 	if hits != 0 {
@@ -100,7 +104,7 @@ func TestPreflightDisabled(t *testing.T) {
 
 	cfg := preflightConfig(srv.URL, http.MethodGet)
 	cfg.Preflight = false
-	if err := preflight(context.Background(), cfg); err != nil {
+	if err := runPreflight(cfg); err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 	if hits != 0 {

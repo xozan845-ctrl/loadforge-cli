@@ -183,6 +183,9 @@ func (a *aggregator) finalizeCurrent(dur time.Duration, start time.Duration) {
 		p.P95 = usToMs(a.cur.hist.ValueAtQuantile(95))
 		p.P99 = usToMs(a.cur.hist.ValueAtQuantile(99))
 	}
+	if a.cfg.Mode == ModeVU {
+		p.TargetRate = a.vuTargetRate()
+	}
 	a.timeline = append(a.timeline, p)
 }
 
@@ -221,7 +224,18 @@ func (a *aggregator) progress(elapsed time.Duration, stopping bool) model.Progre
 		p.Rate = float64(a.cur.requests) / dur.Seconds()
 	}
 	p.TargetRate = a.pacer.Rate(elapsed)
+	if a.cfg.Mode == ModeVU {
+		p.TargetRate = a.vuTargetRate()
+	}
 	return p
+}
+
+func (a *aggregator) vuTargetRate() float64 {
+	if a.totalRequests == 0 || a.cfg.VUs == 0 {
+		return 0
+	}
+	meanSec := float64(a.totalLatency) / float64(a.totalRequests) / 1e6
+	return float64(a.cfg.VUs) / (meanSec + a.cfg.ThinkTime.Seconds())
 }
 
 func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, end time.Time) *model.Report {
@@ -345,6 +359,8 @@ func (a *aggregator) report(interrupted, autoStopped bool, stopReason string, en
 			RateMax:         a.cfg.MaxRate,
 			Workers:         a.cfg.Workers,
 			MaxWorkers:      a.cfg.MaxWorkers,
+			VUs:             a.cfg.VUs,
+			ThinkTimeMs:     a.cfg.ThinkTime.Milliseconds(),
 			HeaderNames:     headers,
 			BodyBytes:       len(a.cfg.Body),
 			TimeoutMs:       a.cfg.Timeout.Milliseconds(),

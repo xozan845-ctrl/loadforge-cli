@@ -463,6 +463,16 @@ function renderEnvironment(r) {
     },
     { k: "Runtime", v: e.go_version || "no disponible" },
   ];
+  if (e.battery_percent || e.battery_temperature_c) {
+    envItems.push({
+      k: "Batería",
+      v: `${fmtNum.format(e.battery_percent || 0)}%` +
+        (e.battery_temperature_c ? ` · ${fmtNum.format(e.battery_temperature_c)} °C` : ""),
+    });
+  }
+  if (e.network) {
+    envItems.push({ k: "Red", v: e.network });
+  }
   for (const item of envItems) {
     const box = node("div", "meta-item");
     box.append(node("div", "k", item.k), node("div", "v", item.v));
@@ -534,6 +544,8 @@ function renderMeta(r) {
       .join(" → ");
   } else if (m.mode === "ramp") {
     mode = `ramp · ${fmtNum.format(m.rate_start)} → ${fmtNum.format(m.rate_max)} req/s`;
+  } else if (m.mode === "vu") {
+    mode = `vu · ${m.vus} usuarios · think ${ms(m.think_time_ms || 0)}`;
   } else {
     mode = `constant · ${fmtNum.format(m.rate_max || m.rate_start)} req/s`;
   }
@@ -551,7 +563,12 @@ function renderMeta(r) {
       k: "Duración",
       v: `${(m.duration_ms / 1000).toFixed(1)} s reales · ${(m.planned_duration_ms / 1000).toFixed(1)} s planificados`,
     },
-    { k: "Concurrencia", v: `${m.workers} workers iniciales · ${m.max_workers} máximo` },
+    {
+      k: "Concurrencia",
+      v: m.mode === "vu"
+        ? `${m.vus} VUs · think ${ms(m.think_time_ms || 0)}`
+        : `${m.workers} workers iniciales · ${m.max_workers} máximo`,
+    },
     { k: "Timeout", v: m.timeout_ms > 0 ? ms(m.timeout_ms) : "sin timeout" },
     { k: "TLS", v: m.insecure ? "verificación desactivada (--insecure)" : "verificado" },
     { k: "Umbrales", v: thresholdText, wide: true },

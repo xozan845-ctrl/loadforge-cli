@@ -90,6 +90,14 @@ func printSummary(r *model.Report, savedPath string) {
 	if len(r.Meta.Stages) > 0 {
 		rows = append(rows, kv("Perfil", stagesText(r.Meta.Stages, narrow)))
 	}
+	if r.Meta.Mode == "vu" {
+		if narrow {
+			rows = append(rows, kv("VUs", fmt.Sprintf("%d · %s", r.Meta.VUs, formatDuration(time.Duration(r.Meta.ThinkTimeMs)*time.Millisecond))))
+		} else {
+			rows = append(rows, kv("VUs", fmt.Sprintf("%d usuarios · think %s", r.Meta.VUs,
+				formatDuration(time.Duration(r.Meta.ThinkTimeMs)*time.Millisecond))))
+		}
+	}
 	if r.Meta.Mode == "ramp" {
 		switch v.Status {
 		case model.VerdictLimit:

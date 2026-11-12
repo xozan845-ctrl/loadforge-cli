@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,15 +27,21 @@ import (
 )
 
 type runOptions struct {
-	url          string
-	apiKey       string
-	apiKeyHeader string
-	apiKeyPrefix string
-	method       string
-	headers      []string
-	body         string
-	bodyFile     string
-	contentType  string
+	url             string
+	apiKey          string
+	apiKeyHeader    string
+	apiKeyPrefix    string
+	oauthTokenURL   string
+	oauthClientID   string
+	oauthSecret     string
+	oauthScope      string
+	oauthTokenField string
+	oauthAuthStyle  string
+	method          string
+	headers         []string
+	body            string
+	bodyFile        string
+	contentType     string
 
 	mode      string
 	rate      float64
@@ -43,8 +50,11 @@ type runOptions struct {
 	stages    []string
 	duration  time.Duration
 
+	dataFile   string
 	workers    int
 	maxWorkers int
+	vus        int
+	thinkTime  time.Duration
 	timeout    time.Duration
 	insecure   bool
 	maxBody    int64
@@ -63,6 +73,7 @@ type runOptions struct {
 	jsonOut bool
 	quiet   bool
 
+	noWakeLock      bool
 	dryRun          bool
 	baseline        string
 	exportHTML      string
@@ -97,21 +108,30 @@ ventana de 5 segundos.`,
 	f.StringVarP(&opts.apiKey, "api-key", "k", "", "API key (mejor usa LOADFORGE_API_KEY)")
 	f.StringVar(&opts.apiKeyHeader, "api-key-header", "Authorization", "Header donde enviar la API key")
 	f.StringVar(&opts.apiKeyPrefix, "api-key-prefix", "Bearer ", "Prefijo del valor de la API key (vacío para X-API-Key)")
+	f.StringVar(&opts.oauthTokenURL, "oauth2-token-url", "", "Endpoint OAuth2 client_credentials")
+	f.StringVar(&opts.oauthClientID, "oauth2-client-id", "", "Client ID OAuth2")
+	f.StringVar(&opts.oauthSecret, "oauth2-client-secret", "", "Client secret OAuth2")
+	f.StringVar(&opts.oauthScope, "oauth2-scope", "", "Scope OAuth2")
+	f.StringVar(&opts.oauthTokenField, "oauth2-token-field", "access_token", "Campo del token en la respuesta (admite data.token)")
+	f.StringVar(&opts.oauthAuthStyle, "oauth2-auth-style", "body", "Envío de credenciales: body o basic")
 	f.StringVarP(&opts.method, "method", "X", "GET", "Método HTTP")
 	f.StringArrayVarP(&opts.headers, "header", "H", nil, "Header extra 'Clave: Valor' (repetible)")
-	f.StringVar(&opts.body, "body", "", "Cuerpo de la petición")
+	f.StringVar(&opts.body, "body", "", "Cuerpo de la petición (admite {{.Iteration}}, {{.RandomID}}, {{.columna}})")
 	f.StringVar(&opts.bodyFile, "body-file", "", "Archivo con el cuerpo de la petición")
+	f.StringVar(&opts.dataFile, "data-file", "", "CSV o JSON con filas para templating")
 	f.StringVar(&opts.contentType, "content-type", "", "Content-Type (por defecto application/json si hay body)")
 
-	f.StringVar(&opts.mode, "mode", engine.ModeRamp, "Modo: ramp, constant, step, spike o soak")
+	f.StringVar(&opts.mode, "mode", engine.ModeRamp, "Modo: ramp, constant, step, spike, soak o vu")
 	f.Float64VarP(&opts.rate, "rate", "r", 20, "Peticiones por segundo en modo constant o soak")
 	f.Float64Var(&opts.startRate, "start-rate", 1, "req/s inicial en modo ramp")
 	f.Float64Var(&opts.maxRate, "max-rate", 50, "req/s máximo en modo ramp")
 	f.StringArrayVar(&opts.stages, "stage", nil, "Etapa RATE:DURACION para step/spike/soak (repetible)")
 	f.DurationVarP(&opts.duration, "duration", "d", 30*time.Second, "Duración (los stages la sobrescriben)")
 
-	f.IntVarP(&opts.workers, "workers", "c", 10, "Workers iniciales")
+	f.IntVarP(&opts.workers, "workers", "c", 10, "Workers iniciales (modo abierto)")
 	f.IntVar(&opts.maxWorkers, "max-workers", 0, "Máximo de workers (0 = automático)")
+	f.IntVar(&opts.vus, "vus", 10, "Usuarios virtuales en --mode vu")
+	f.DurationVar(&opts.thinkTime, "think-time", 0, "Pausa entre peticiones por VU (ej. 1s)")
 	f.DurationVarP(&opts.timeout, "timeout", "t", 10*time.Second, "Timeout por petición")
 	f.BoolVar(&opts.insecure, "insecure", false, "No verificar certificados TLS (solo pruebas)")
 	f.Int64Var(&opts.maxBody, "max-body", 4096, "Bytes máximos de respuesta a leer por petición")
@@ -132,6 +152,7 @@ ventana de 5 segundos.`,
 	f.StringVar(&opts.exportCSV, "export-csv", "", "Guardar resumen y timeline en CSV (ruta o directorio)")
 	f.BoolVar(&opts.jsonOut, "json", false, "Imprimir el reporte JSON y salir (sin TUI ni servidor)")
 	f.BoolVar(&opts.quiet, "quiet", false, "Sin barra de progreso en vivo")
+	f.BoolVar(&opts.noWakeLock, "no-wake-lock", false, "No adquirir termux-wake-lock durante la prueba")
 	f.BoolVar(&opts.dryRun, "dry-run", false, "Validar URL, auth y TLS sin generar carga")
 	f.BoolVar(&opts.failOnThreshold, "fail-on-threshold", false, "Salir con código 1 si el veredicto no es pass")
 
@@ -227,6 +248,23 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		headers.Set("Content-Type", "application/json")
 	}
 
+	var rows []map[string]string
+	bodyTemplate := ""
+	if opts.dataFile != "" {
+		loaded, err := loadDataFile(opts.dataFile)
+		if err != nil {
+			return engine.Config{}, err
+		}
+		rows = loaded
+		bodyTemplate = string(body)
+		if bodyTemplate == "" {
+			bodyTemplate = "{{.body}}"
+		}
+		if err := validateTemplate(bodyTemplate, rows); err != nil {
+			return engine.Config{}, err
+		}
+	}
+
 	mode := strings.ToLower(opts.mode)
 	startRate, maxRate := opts.startRate, opts.maxRate
 	if mode == engine.ModeConstant {
@@ -259,6 +297,26 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		return engine.Config{}, err
 	}
 
+	oauth := engine.OAuth2Config{
+		TokenURL:     strings.TrimSpace(opts.oauthTokenURL),
+		ClientID:     opts.oauthClientID,
+		ClientSecret: opts.oauthSecret,
+		Scope:        opts.oauthScope,
+		TokenField:   opts.oauthTokenField,
+		AuthStyle:    strings.ToLower(opts.oauthAuthStyle),
+	}
+	if oauth.TokenURL != "" {
+		if apiKey != "" {
+			return engine.Config{}, fmt.Errorf("usa --oauth2-* o --api-key, no ambos")
+		}
+		if oauth.ClientID == "" || oauth.ClientSecret == "" {
+			return engine.Config{}, fmt.Errorf("--oauth2-token-url requiere --oauth2-client-id y --oauth2-client-secret")
+		}
+		if oauth.AuthStyle != "body" && oauth.AuthStyle != "basic" {
+			return engine.Config{}, fmt.Errorf("--oauth2-auth-style debe ser body o basic")
+		}
+	}
+
 	maxWorkers := opts.maxWorkers
 	if maxWorkers <= 0 {
 		auto := int(math.Ceil(maxRate * 2))
@@ -279,6 +337,8 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		Method:       strings.ToUpper(opts.method),
 		Headers:      headers,
 		Body:         body,
+		BodyTemplate: bodyTemplate,
+		Rows:         rows,
 		Mode:         mode,
 		Rate:         opts.rate,
 		StartRate:    startRate,
@@ -287,13 +347,16 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		Duration:     opts.duration,
 		Workers:      opts.workers,
 		MaxWorkers:   maxWorkers,
+		VUs:          opts.vus,
+		ThinkTime:    opts.thinkTime,
 		Timeout:      opts.timeout,
 		Insecure:     opts.insecure,
 		MaxBody:      opts.maxBody,
 		MaxErrorRate: opts.maxErrorRate,
 		MaxP95:       opts.maxP95,
 		MaxStatus:    statusLimits,
-		AutoStop:     !opts.noAutoStop && (mode == engine.ModeRamp || mode == engine.ModeStep || mode == engine.ModeSpike),
+		OAuth:        oauth,
+		AutoStop:     !opts.noAutoStop && (mode == engine.ModeRamp || mode == engine.ModeStep || mode == engine.ModeSpike || mode == engine.ModeVU),
 		Preflight:    !opts.noPreflight,
 		Version:      version.Version,
 	}
@@ -307,6 +370,10 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 	if opts.dryRun {
 		return executeDryRun(cfg)
 	}
+	releaseWake := func() {}
+	if runtime.GOOS == "android" && !opts.noWakeLock {
+		releaseWake = acquireWakeLock()
+	}
 
 	var (
 		report *model.Report
@@ -317,8 +384,21 @@ func executeRun(cfg engine.Config, opts *runOptions) error {
 	} else {
 		report, err = tui.Run(cfg)
 	}
+	releaseWake()
 	if err != nil {
 		return err
+	}
+
+	if percent, temp, ok := termuxBattery(); ok {
+		report.Environment.BatteryPercent = percent
+		report.Environment.BatteryTemperatureC = temp
+		if temp >= 40 {
+			report.Verdict.Recommendations = append(report.Verdict.Recommendations,
+				formatBatteryWarning(temp))
+		}
+	}
+	if network := termuxNetwork(); network != "" {
+		report.Environment.Network = network
 	}
 
 	if opts.baseline != "" {
@@ -445,6 +525,9 @@ func executeDryRun(cfg engine.Config) error {
 			parts = append(parts, fmt.Sprintf("%.0f:%s", s.Rate, s.Duration))
 		}
 		mode = cfg.Mode + " " + strings.Join(parts, " → ")
+	}
+	if cfg.Mode == engine.ModeVU {
+		mode = fmt.Sprintf("vu %d usuarios · think %s", cfg.VUs, cfg.ThinkTime)
 	}
 	fmt.Println("  " + kv("Objetivo", engine.SafeURL(cfg.URL)+" · "+cfg.Method))
 	fmt.Println("  " + kv("Modo", mode))

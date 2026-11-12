@@ -25,11 +25,11 @@ cruzados y documentación actualizada antes de pasar a la siguiente.
 
 ## Fase 3 — Realismo (`v0.5.0`)
 
-- [ ] Payloads desde CSV/JSON y templating (`{{.Iteration}}`, `{{.RandomID}}`).
-- [ ] OAuth2 client credentials, refresh y extracción de token con JSONPath.
-- [ ] Modelo cerrado con VUs y think time.
-- [ ] Integración Termux: `termux-wake-lock`, batería, temperatura y red.
-- [ ] Pausa/reanudación y controles en la TUI.
+- [x] Payloads desde CSV/JSON y templating (`{{.Iteration}}`, `{{.RandomID}}`).
+- [x] OAuth2 client credentials, refresh y extracción de token con ruta de campos (`data.token`).
+- [x] Modelo cerrado con VUs y think time.
+- [x] Integración Termux: `termux-wake-lock`, batería, temperatura y red.
+- [x] Pausa/reanudación y controles en la TUI.
 
 ## Fase 4 — Protocolos y escala (`v0.6.0`)
 

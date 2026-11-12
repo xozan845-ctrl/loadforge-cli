@@ -12,7 +12,14 @@ import (
 // `loadforge run --dry-run`.
 func CheckTarget(ctx context.Context, cfg Config) error {
 	cfg.Preflight = true
-	return preflight(ctx, cfg)
+	var oauth *oauthSource
+	if cfg.OAuth.TokenURL != "" {
+		oauth = newOAuthSource(cfg.OAuth)
+		if _, err := oauth.tokenFor(ctx); err != nil {
+			return err
+		}
+	}
+	return preflight(ctx, cfg, newHTTPClient(cfg, oauth))
 }
 
 // preflight probes the endpoint once before generating load. It catches the
@@ -21,7 +28,7 @@ func CheckTarget(ctx context.Context, cfg Config) error {
 //
 // It is intentionally limited to safe methods: sending a real POST/PUT/PATCH/
 // DELETE before the test could create or modify data twice.
-func preflight(ctx context.Context, cfg Config) error {
+func preflight(ctx context.Context, cfg Config, client *http.Client) error {
 	if !cfg.Preflight {
 		return nil
 	}
@@ -44,7 +51,6 @@ func preflight(ctx context.Context, cfg Config) error {
 	}
 	req.Header = cfg.Headers.Clone()
 
-	client := newHTTPClient(cfg)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("la comprobación previa no pudo conectar con %s: %w", sanitizeURL(cfg.URL), err)

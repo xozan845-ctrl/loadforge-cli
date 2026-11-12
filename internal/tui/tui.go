@@ -69,6 +69,7 @@ type modelState struct {
 	live     *LiveState
 	done     <-chan resultMsg
 	cancel   context.CancelFunc
+	gate     *engine.Gate
 	width    int
 	height   int
 	spinner  int
@@ -84,6 +85,8 @@ func Run(cfg engine.Config) (*model.Report, error) {
 	defer cancel()
 
 	live := &LiveState{}
+	gate := engine.NewGate()
+	cfg.Gate = gate
 	startRate := cfg.Rate
 	if cfg.Mode != engine.ModeConstant {
 		startRate = cfg.StartRate
@@ -95,7 +98,7 @@ func Run(cfg engine.Config) (*model.Report, error) {
 		ch <- resultMsg{report: rep, err: err}
 	}()
 
-	m := &modelState{cfg: cfg, live: live, done: ch, cancel: cancel, width: 80}
+	m := &modelState{cfg: cfg, live: live, done: ch, cancel: cancel, width: 80, gate: gate}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := p.StartReturningModel()
 	if errors.Is(err, tea.ErrInterrupted) {
@@ -160,6 +163,11 @@ func (m *modelState) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stopping = true
 			m.cancel()
 			return m, nil
+		case "p":
+			if m.gate != nil && m.report == nil {
+				m.gate.Toggle()
+			}
+			return m, nil
 		}
 	}
 	return m, nil
@@ -177,6 +185,10 @@ func (m *modelState) View() string {
 	b.WriteString(titleStyle.Render("⚡ LOADFORGE"))
 	b.WriteString("   ")
 	b.WriteString(subStyle.Render(modeLabel(m.cfg)))
+	if m.gate != nil && m.gate.Paused() {
+		b.WriteString("   ")
+		b.WriteString(warnStyle.Render("PAUSADO · p para reanudar"))
+	}
 	b.WriteString("\n\n  ")
 	url := engine.SafeURL(m.cfg.URL)
 	if len(url) > width-4 {
@@ -227,7 +239,7 @@ func (m *modelState) View() string {
 	if m.stopping {
 		b.WriteString(warnStyle.Render("Deteniendo… esperando las peticiones en vuelo (Ctrl+C de nuevo para forzar)"))
 	} else {
-		b.WriteString(subStyle.Render("Ctrl+C detener y ver resultados parciales"))
+		b.WriteString(subStyle.Render("p pausar/reanudar · Ctrl+C detener y ver resultados parciales"))
 	}
 	b.WriteString("\n")
 	return b.String()

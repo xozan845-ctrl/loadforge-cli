@@ -24,6 +24,7 @@ const (
 	ModeStep     = "step"
 	ModeSpike    = "spike"
 	ModeSoak     = "soak"
+	ModeVU       = "vu"
 )
 
 // Stage is one step of a staged profile. For step and soak the rate is held
@@ -35,19 +36,23 @@ type Stage struct {
 
 // Config describes a load test.
 type Config struct {
-	URL       string
-	Method    string
-	Headers   http.Header
-	Body      []byte
-	Mode      string
-	Rate      float64
-	StartRate float64
-	MaxRate   float64
-	Stages    []Stage
-	Duration  time.Duration
+	URL          string
+	Method       string
+	Headers      http.Header
+	Body         []byte
+	BodyTemplate string
+	Rows         []map[string]string
+	Mode         string
+	Rate         float64
+	StartRate    float64
+	MaxRate      float64
+	Stages       []Stage
+	Duration     time.Duration
 
 	Workers    int
 	MaxWorkers int
+	VUs        int
+	ThinkTime  time.Duration
 	Timeout    time.Duration
 	Insecure   bool
 	MaxBody    int64
@@ -55,6 +60,8 @@ type Config struct {
 	MaxErrorRate float64
 	MaxP95       time.Duration
 	MaxStatus    map[int]uint64
+	OAuth        OAuth2Config
+	Gate         *Gate
 	AutoStop     bool
 	Preflight    bool
 
@@ -87,6 +94,13 @@ func (c *Config) Validate() error {
 		}
 		if c.MaxRate < c.StartRate {
 			return fmt.Errorf("max-rate debe ser mayor o igual que start-rate")
+		}
+	case ModeVU:
+		if c.VUs < 1 {
+			return fmt.Errorf("--vus debe ser al menos 1")
+		}
+		if c.ThinkTime < 0 {
+			return fmt.Errorf("--think-time no puede ser negativo")
 		}
 	case ModeStep, ModeSpike, ModeSoak:
 		if len(c.Stages) == 0 {
@@ -201,25 +215,31 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	if err := preflight(ctx, cfg); err != nil {
+	var oauth *oauthSource
+	if cfg.OAuth.TokenURL != "" {
+		oauth = newOAuthSource(cfg.OAuth)
+		if _, err := oauth.tokenFor(ctx); err != nil {
+			return nil, err
+		}
+	}
+	client := newHTTPClient(cfg, oauth)
+	if err := preflight(ctx, cfg, client); err != nil {
 		return nil, err
 	}
 
-	target := vegeta.Target{
-		Method: cfg.Method,
-		URL:    cfg.URL,
-		Body:   cfg.Body,
-		Header: cfg.Headers.Clone(),
-	}
-	if target.Header == nil {
-		target.Header = http.Header{}
-	}
+	builder := newTargetBuilder(cfg)
 	targeter := func(t *vegeta.Target) error {
-		*t = target
+		built, err := builder.build()
+		if err != nil {
+			return err
+		}
+		*t = built
 		return nil
 	}
 	// Validate headers/URL once, before the attack starts.
-	if _, err := target.Request(); err != nil {
+	if probe, err := builder.build(); err != nil {
+		return nil, fmt.Errorf("no se pudo construir la petición: %w", err)
+	} else if _, err := probe.Request(); err != nil {
 		return nil, fmt.Errorf("no se pudo construir la petición: %w", err)
 	}
 
@@ -227,6 +247,8 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 	switch cfg.Mode {
 	case ModeStep, ModeSpike, ModeSoak:
 		pacer = newStagesPacer(cfg.Mode, cfg.Stages)
+	case ModeVU:
+		pacer = zeroPacer{}
 	default:
 		linear := &linearPacer{
 			start: cfg.Rate,
@@ -239,29 +261,41 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 		}
 		pacer = linear
 	}
-
-	attacker := vegeta.NewAttacker(
-		vegeta.Workers(uint64(cfg.Workers)),
-		vegeta.MaxWorkers(uint64(cfg.MaxWorkers)),
-		vegeta.Client(newHTTPClient(cfg)),
-		vegeta.MaxBody(cfg.MaxBody),
-	)
+	if cfg.Gate != nil && cfg.Mode != ModeVU {
+		pacer = newGatedPacer(pacer, cfg.Gate)
+	}
 
 	start := time.Now()
 	agg := newAggregator(cfg, pacer, start)
 	sampler := newEnvSampler()
 
+	var results <-chan *vegeta.Result
+	stopAttack := func() {}
+	if cfg.Mode == ModeVU {
+		vuCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stopAttack = cancel
+		results = runVUs(vuCtx, cfg, builder, client, cfg.Gate)
+	} else {
+		attacker := vegeta.NewAttacker(
+			vegeta.Workers(uint64(cfg.Workers)),
+			vegeta.MaxWorkers(uint64(cfg.MaxWorkers)),
+			vegeta.Client(client),
+			vegeta.MaxBody(cfg.MaxBody),
+		)
+		stopAttack = func() { attacker.Stop() }
+		results = attacker.Attack(targeter, pacer, cfg.Duration, "")
+	}
+
 	done := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			attacker.Stop()
+			stopAttack()
 		case <-done:
 		}
 	}()
 	defer close(done)
-
-	results := attacker.Attack(targeter, pacer, cfg.Duration, "")
 
 	var (
 		lastProgress  = time.Time{}
@@ -290,7 +324,7 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 				if triggered, reason := checkThresholds(agg.timeline, cfg); triggered {
 					autoStopped = true
 					stopReason = reason
-					attacker.Stop()
+					stopAttack()
 				}
 				checked = len(agg.timeline)
 			}
@@ -316,7 +350,7 @@ func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*mod
 	return report, nil
 }
 
-func newHTTPClient(cfg Config) *http.Client {
+func newHTTPClient(cfg Config, oauth *oauthSource) *http.Client {
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
@@ -335,8 +369,12 @@ func newHTTPClient(cfg Config) *http.Client {
 			InsecureSkipVerify: cfg.Insecure, //nolint:gosec // explicit opt-in for test environments
 		},
 	}
+	var rt http.RoundTripper = &timingTransport{base: transport}
+	if oauth != nil {
+		rt = &oauthTransport{base: rt, source: oauth}
+	}
 	return &http.Client{
-		Transport: &timingTransport{base: transport},
+		Transport: rt,
 		Timeout:   cfg.Timeout,
 	}
 }
