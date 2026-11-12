@@ -87,6 +87,9 @@ func printSummary(r *model.Report, savedPath string) {
 	rows = append(rows, kv("Umbrales", thresholdsText(r.Thresholds)))
 	rows = append(rows, kv("Entorno", environmentText(r.Environment)))
 	rows = append(rows, kv("Cliente", clientText(r.Environment)))
+	if resources := clientResourcesText(r.Environment); resources != "" {
+		rows = append(rows, kv("Recursos", resources))
+	}
 
 	fmt.Println(boxStyle.Width(boxWidth).Render(strings.Join(rows, "\n")))
 	fmt.Println()
@@ -197,14 +200,18 @@ func environmentText(e model.Environment) string {
 }
 
 func clientText(e model.Environment) string {
-	var parts []string
-	if e.ProcessCPUPercent > 0 {
-		cpu := fmt.Sprintf("CPU %.1f%% de un núcleo", e.ProcessCPUPercent)
-		if e.ProcessCPUSharePercent > 0 {
-			cpu += fmt.Sprintf(" · %.1f%% del equipo", e.ProcessCPUSharePercent)
-		}
-		parts = append(parts, cpu)
+	if e.ProcessCPUPercent <= 0 {
+		return "CPU no disponible en esta plataforma"
 	}
+	cpu := fmt.Sprintf("CPU %.1f%% de un núcleo", e.ProcessCPUPercent)
+	if e.ProcessCPUSharePercent > 0 {
+		cpu += fmt.Sprintf(" · %.1f%% del equipo", e.ProcessCPUSharePercent)
+	}
+	return cpu
+}
+
+func clientResourcesText(e model.Environment) string {
+	var parts []string
 	if e.MaxRSSBytes > 0 {
 		parts = append(parts, humanBytes(e.MaxRSSBytes)+" RSS")
 	}
@@ -213,9 +220,6 @@ func clientText(e model.Environment) string {
 	}
 	if e.NumGC > 0 {
 		parts = append(parts, fmt.Sprintf("GC %d×", e.NumGC))
-	}
-	if len(parts) == 0 {
-		return "no disponible en esta plataforma"
 	}
 	return strings.Join(parts, " · ")
 }
