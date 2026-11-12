@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,20 @@ func TestVerdictAuthFailure(t *testing.T) {
 	v := buildVerdict(cfg, summary, lat, nil, statuses, nil, false, false, "")
 	if v.Status != model.VerdictFail || v.Title != "Autenticación rechazada" {
 		t.Fatalf("verdict = %q / %q", v.Status, v.Title)
+	}
+}
+
+func TestVerdictMissingEndpoint(t *testing.T) {
+	cfg := baseVerdictConfig()
+	summary := model.Summary{Requests: 100, SuccessRate: 0, ErrorRate: 1}
+	lat := model.LatencyStats{P95: 10}
+	statuses := []model.StatusCount{{Code: 404, Count: 100, Percent: 1}}
+	v := buildVerdict(cfg, summary, lat, nil, statuses, nil, false, false, "")
+	if v.Status != model.VerdictFail || v.Title != "Endpoint no encontrado" {
+		t.Fatalf("verdict = %q / %q", v.Status, v.Title)
+	}
+	if len(v.Recommendations) == 0 || !strings.Contains(v.Recommendations[0], "404") {
+		t.Fatalf("missing 404 recommendation: %v", v.Recommendations)
 	}
 }
 

@@ -44,6 +44,7 @@ type Config struct {
 	MaxErrorRate float64
 	MaxP95       time.Duration
 	AutoStop     bool
+	Preflight    bool
 
 	Version string
 }
@@ -106,6 +107,9 @@ func (c *Config) Validate() error {
 // for in-flight requests and returns a partial report.
 func Run(ctx context.Context, cfg Config, onProgress func(model.Progress)) (*model.Report, error) {
 	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	if err := preflight(ctx, cfg); err != nil {
 		return nil, err
 	}
 

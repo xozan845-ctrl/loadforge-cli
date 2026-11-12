@@ -38,6 +38,17 @@ func buildVerdict(
 		return v
 	}
 
+	missing := countCodes(statuses, 404, 405)
+	if float64(missing)/float64(summary.Requests) >= 0.5 {
+		v.Status = model.VerdictFail
+		v.Title = "Endpoint no encontrado"
+		v.Message = fmt.Sprintf(
+			"%d de %d peticiones recibieron 404/405. La URL o el método HTTP no coinciden con una ruta válida del backend. Revisa --url y -X.",
+			missing, summary.Requests,
+		)
+		return v
+	}
+
 	authFailures := countCodes(statuses, 401) + countCodes(statuses, 403)
 	if float64(authFailures)/float64(summary.Requests) >= 0.5 {
 		v.Status = model.VerdictFail
@@ -200,6 +211,9 @@ func recommendations(
 
 	if countCodes(statuses, 401, 403) > 0 {
 		add("Recibiste 401/403: revisa --api-key-header y --api-key-prefix. Si usas Authorization, el prefijo suele ser \"Bearer \".")
+	}
+	if missing := countCodes(statuses, 404, 405); missing > 0 {
+		add(fmt.Sprintf("Recibiste %d respuestas 404/405: revisa la ruta de la URL y el método HTTP; el endpoint puede no existir.", missing))
 	}
 	if countCodes(statuses, 429) > 0 {
 		add("El backend aplicó rate limiting (429). El límite práctico está cerca del punto donde aparecieron esos códigos.")

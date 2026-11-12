@@ -145,6 +145,12 @@ Por defecto hace una **rampa de 1 a 50 req/s durante 30 segundos**, con un
 umbral de **1% de errores** y **P95 de 500 ms**. Si el backend se degrada de
 forma clara, la prueba se detiene y reporta el punto de quiebre.
 
+Antes de generar carga, LoadForge hace una **comprobación previa** con una
+petición (solo en métodos seguros como `GET`/`HEAD`) para detectar rutas
+inexistentes (`404/405`), credenciales inválidas (`401/403`) o un servicio
+caído. Si encuentra uno de esos problemas, aborta con un mensaje claro en
+lugar de malgastar la prueba. Desactívala con `--no-preflight`.
+
 El token se envía como `Authorization: Bearer <token>`. Para otros esquemas:
 
 ```bash
@@ -293,6 +299,7 @@ loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 
 | `--max-error-rate` | `0.01` | SLO de errores (0.01 = 1%). |
 | `--max-p95` | `500ms` | SLO de latencia P95 (`0` lo desactiva). |
 | `--no-autostop` | `false` | No cortar la rampa al degradarse. |
+| `--no-preflight` | `false` | No comprobar la URL antes de generar carga. |
 | `--host` | `127.0.0.1` | Interfaz del reporte. |
 | `--port` | `0` | Puerto (`0` = aleatorio). |
 | `--no-open` | `false` | No abrir el navegador. |

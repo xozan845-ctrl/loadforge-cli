@@ -49,6 +49,7 @@ type runOptions struct {
 	maxErrorRate float64
 	maxP95       time.Duration
 	noAutoStop   bool
+	noPreflight  bool
 
 	host    string
 	port    int
@@ -107,6 +108,7 @@ ventana de 5 segundos.`,
 	f.Float64Var(&opts.maxErrorRate, "max-error-rate", 0.01, "Tasa de error máxima, 0.01 = 1%")
 	f.DurationVar(&opts.maxP95, "max-p95", 500*time.Millisecond, "P95 máximo aceptable (0 para desactivar)")
 	f.BoolVar(&opts.noAutoStop, "no-autostop", false, "No detener la rampa al superar los umbrales")
+	f.BoolVar(&opts.noPreflight, "no-preflight", false, "No comprobar la URL una vez antes de generar carga")
 
 	f.StringVar(&opts.host, "host", "127.0.0.1", "Host donde servir el reporte")
 	f.IntVar(&opts.port, "port", 0, "Puerto del reporte (0 = aleatorio)")
@@ -204,6 +206,7 @@ func buildConfig(opts *runOptions) (engine.Config, error) {
 		MaxErrorRate: opts.maxErrorRate,
 		MaxP95:       opts.maxP95,
 		AutoStop:     !opts.noAutoStop && mode == engine.ModeRamp,
+		Preflight:    !opts.noPreflight,
 		Version:      version.Version,
 	}
 	if err := cfg.Validate(); err != nil {
