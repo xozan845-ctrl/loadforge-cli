@@ -76,10 +76,18 @@ chmod +x loadforge-termux-arm64
 Si quieres dejarlo en el PATH:
 
 ```bash
-mkdir -p ~/.local/bin
-cp loadforge-termux-arm64 ~/.local/bin/loadforge
-chmod +x ~/.local/bin/loadforge
+mkdir -p "$PREFIX/bin"
+cp loadforge-termux-arm64 "$PREFIX/bin/loadforge"
+chmod +x "$PREFIX/bin/loadforge"
 loadforge --version
+```
+
+`$PREFIX/bin` ya está en el PATH de Termux. Si prefieres usar `~/.local/bin`,
+añade esa carpeta al PATH en tu `~/.bashrc`:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 En **Linux** (x86_64 o ARM64):
