@@ -204,16 +204,65 @@ loadforge run \
   --json --save reportes/run-$(date +%Y%m%d-%H%M).json
 ```
 
-**Probar contra un backend local de mentira:**
+### Servidor falso local
+
+El repo incluye `cmd/mockserver`, un backend de prueba que simula latencia y
+errores. No se distribuye como binario: compílalo desde el código.
 
 ```bash
-# Terminal 1
-./dist/mockserver
+cd ~/loadforge
+go build -o dist/mockserver ./cmd/mockserver
 
-# Terminal 2
-loadforge run \
-  --url http://127.0.0.1:9099/api/data \
-  --mode ramp --start-rate 5 --max-rate 200 --duration 30s
+# Terminal 1: arranca el servidor en 127.0.0.1:9099
+./dist/mockserver
+```
+
+| Endpoint | Comportamiento |
+|---|---|
+| `/healthz` | Respuesta inmediata `{"ok":true}` |
+| `/api/data` | Latencia simulada y ~1% de errores 500 |
+| `/secure` | Exige `Authorization: Bearer demo` o `X-API-Key: demo` |
+
+Ajusta la simulación con flags:
+
+```bash
+# 5% de errores y más latencia para ver un veredicto negativo
+./dist/mockserver -addr 127.0.0.1:9099 -latency 20ms -jitter 30ms -fail 0.05
+```
+
+En la **Terminal 2** ejecuta las pruebas:
+
+```bash
+# Rampa de carga
+loadforge run --url http://127.0.0.1:9099/api/data \
+  --mode ramp --start-rate 1 --max-rate 50 --duration 20s
+
+# Carga constante
+loadforge run --url http://127.0.0.1:9099/api/data \
+  --mode constant --rate 30 --duration 10s
+
+# Probar autenticación
+loadforge run --url http://127.0.0.1:9099/secure \
+  --api-key demo --mode constant --rate 5 --duration 5s
+
+# Solo JSON, sin TUI ni servidor de reporte
+loadforge run --url http://127.0.0.1:9099/api/data \
+  --mode constant --rate 20 --duration 5s --json > reporte.json
+
+# Reporte en un puerto fijo y sin abrir el navegador
+loadforge run --url http://127.0.0.1:9099/api/data \
+  --mode constant --rate 20 --duration 10s --no-open --port 8080
+# Luego abre http://127.0.0.1:8080
+```
+
+Detén el servidor falso con `Ctrl+C` en su terminal, o con `kill %1` si lo
+dejaste en segundo plano.
+
+Si prefieres no compilar nada, también sirve cualquier servidor local:
+
+```bash
+python3 -m http.server 9099 --bind 127.0.0.1
+loadforge run --url http://127.0.0.1:9099/ --mode constant --rate 10 --duration 5s
 ```
 
 ## Flags principales
